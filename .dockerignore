@@ -1,0 +1,6 @@
+.git
+.github
+target/*.original
+*.log
+.idea
+.vscode
