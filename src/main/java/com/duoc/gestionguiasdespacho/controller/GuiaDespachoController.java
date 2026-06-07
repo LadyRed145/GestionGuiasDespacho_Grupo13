@@ -9,9 +9,9 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Objects;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/guias")
@@ -23,6 +23,20 @@ public class GuiaDespachoController {
     @PostMapping
     public ResponseEntity<GuiaDespachoResponse> crear(@RequestBody GuiaDespachoRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(guiaService.crear(request));
+    }
+
+    @GetMapping
+    public ResponseEntity<List<GuiaDespachoResponse>> listar(
+            @RequestParam(required = false) String transportista,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha
+    ) {
+        return ResponseEntity.ok(guiaService.listar(transportista, fecha));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<GuiaDespachoResponse> buscarPorId(@PathVariable Long id) {
+        return ResponseEntity.ok(guiaService.buscarPorId(id));
     }
 
     @PostMapping("/{id}/subir")
@@ -52,14 +66,5 @@ public class GuiaDespachoController {
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
         guiaService.eliminar(id);
         return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping
-    public ResponseEntity<List<GuiaDespachoResponse>> listar(
-            @RequestParam(required = false) String transportista,
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha
-    ) {
-        return ResponseEntity.ok(guiaService.listar(transportista, fecha));
     }
 }
