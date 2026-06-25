@@ -1,16 +1,20 @@
 services:
   gestionguiasdespacho:
-    image: ladyred/gestionguiasdespacho:latest
-    container_name: Semana3
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: gestionguiasdespacho:latest
+    container_name: gestion-guias-despacho
 
     ports:
-      - "8081:8080"
+      - "8081:8081"
 
     env_file:
-      - .env
+      - .env.docker
 
     volumes:
-      - "/home/natalia/wallets/Wallet_Semana3:/app/wallet:ro"
+      - "/home/natalia/Archivos/Desarrollo Cloud Native/Wallets Registradas/Wallet_Semana3:/app/wallet:ro"
       - "./guias:/mnt/efs/guias"
 
     restart: "no"
