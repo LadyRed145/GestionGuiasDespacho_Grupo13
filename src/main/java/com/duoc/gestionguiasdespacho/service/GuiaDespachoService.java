@@ -21,12 +21,16 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class GuiaDespachoService {
+
+    private static final String CONTENT_TYPE_TEXT_UTF8 = "text/plain; charset=UTF-8";
 
     private final GuiaDespachoRepository guiaRepository;
     private final S3Client s3Client;
@@ -58,32 +62,33 @@ public class GuiaDespachoService {
                 .estado(normalizarEstado(request.getEstado(), "CREADA"))
                 .build();
 
-        GuiaDespacho guardada = guardarGuia(guia);
-        return toResponse(guardada);
+        return toResponse(guardarGuia(guia));
     }
 
     public GuiaDespachoResponse buscarPorId(Long id) {
-        GuiaDespacho guia = buscarEntidad(id);
-        return toResponse(guia);
+        return toResponse(buscarEntidad(id));
     }
 
     public GuiaDespachoResponse generarYSubirAS3(Long id) {
         GuiaDespacho guia = buscarEntidad(id);
 
         try {
-            Path carpetaEfs = Path.of(efsBasePath);
+            Path carpetaEfs = Path.of(efsBasePath).toAbsolutePath().normalize();
             Files.createDirectories(carpetaEfs);
 
             String numeroGuia = validarTexto(guia.getNumeroGuia(), "La guía debe tener número.");
-            String nombreArchivo = "guia-" + numeroGuia + ".txt";
-            Path archivoEfs = carpetaEfs.resolve(nombreArchivo);
+            String nombreArchivo = construirNombreArchivo(numeroGuia);
+            Path archivoEfs = carpetaEfs.resolve(nombreArchivo).normalize();
 
             String contenido = construirContenidoGuia(guia);
+            byte[] contenidoUtf8 = contenido.getBytes(StandardCharsets.UTF_8);
 
-            Files.writeString(
+            Files.write(
                     archivoEfs,
-                    contenido,
-                    StandardCharsets.UTF_8
+                    contenidoUtf8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE
             );
 
             String s3Key = construirS3Key(guia, nombreArchivo);
@@ -91,12 +96,13 @@ public class GuiaDespachoService {
             PutObjectRequest putRequest = PutObjectRequest.builder()
                     .bucket(bucketName)
                     .key(s3Key)
-                    .contentType("text/plain; charset=UTF-8")
+                    .contentType(CONTENT_TYPE_TEXT_UTF8)
+                    .contentEncoding("UTF-8")
                     .build();
 
             s3Client.putObject(
                     putRequest,
-                    RequestBody.fromString(contenido, StandardCharsets.UTF_8)
+                    RequestBody.fromBytes(contenidoUtf8)
             );
 
             guia.setNombreArchivo(nombreArchivo);
@@ -104,8 +110,7 @@ public class GuiaDespachoService {
             guia.setS3Key(s3Key);
             guia.setEstado("SUBIDA_S3");
 
-            GuiaDespacho actualizada = guardarGuia(guia);
-            return toResponse(actualizada);
+            return toResponse(guardarGuia(guia));
 
         } catch (IOException e) {
             throw new RuntimeException("Error al generar la guía en EFS.", e);
@@ -116,11 +121,9 @@ public class GuiaDespachoService {
         GuiaDespacho guia = buscarEntidad(id);
         validarS3Key(guia);
 
-        String s3Key = validarTexto(guia.getS3Key(), "La guía no tiene ruta S3 asociada.");
-
         GetObjectRequest request = GetObjectRequest.builder()
                 .bucket(bucketName)
-                .key(s3Key)
+                .key(guia.getS3Key())
                 .build();
 
         ResponseBytes<GetObjectResponse> archivo = s3Client.getObjectAsBytes(request);
@@ -231,6 +234,11 @@ public class GuiaDespachoService {
         );
     }
 
+    private String construirNombreArchivo(String numeroGuia) {
+        String numeroLimpio = limpiarNombreArchivo(numeroGuia);
+        return "guia-" + numeroLimpio + ".txt";
+    }
+
     private String construirS3Key(GuiaDespacho guia, String nombreArchivo) {
         LocalDate fecha = guia.getFechaGeneracion() != null ? guia.getFechaGeneracion() : LocalDate.now();
         String transportista = validarTexto(
@@ -242,8 +250,21 @@ public class GuiaDespachoService {
     }
 
     private String limpiarNombreCarpeta(String texto) {
-        return validarTexto(texto, "El nombre de carpeta no puede estar vacío.")
-                .replaceAll("\\s+", "_");
+        return limpiarTextoParaRuta(validarTexto(texto, "El nombre de carpeta no puede estar vacío."));
+    }
+
+    private String limpiarNombreArchivo(String texto) {
+        return limpiarTextoParaRuta(validarTexto(texto, "El nombre de archivo no puede estar vacío."));
+    }
+
+    private String limpiarTextoParaRuta(String texto) {
+        String normalizado = Normalizer.normalize(texto.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "");
+
+        return normalizado
+                .replaceAll("[^a-zA-Z0-9._-]+", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^_|_$", "");
     }
 
     private void validarS3Key(GuiaDespacho guia) {
