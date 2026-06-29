@@ -11,10 +11,10 @@ services:
       - "8081:8081"
 
     env_file:
-      - .env
+      - .env.docker
 
     volumes:
-      - "/home/natalia/Archivos/Desarrollo Cloud Native/Wallets Registradas/Wallet_Semana3:/home/natalia/wallets/wallet3:ro"
+      - "/home/ubuntu/wallet:/wallet:ro"
       - "./guias:/mnt/efs/guias"
 
     restart: "no"
