@@ -41,13 +41,13 @@ public class GuiaDespachoService {
     public GuiaDespachoResponse crear(GuiaDespachoRequest request) {
         validarRequest(request);
 
-        String numeroGuia = validarTexto(request.getNumeroGuia(), "El numero de guia es obligatorio.");
+        String numeroGuia = validarTexto(request.getNumeroGuia(), "El número de guía es obligatorio.");
         String transportista = validarTexto(request.getTransportista(), "El transportista es obligatorio.");
         String destinatario = validarTexto(request.getDestinatario(), "El destinatario es obligatorio.");
-        String direccionDestino = validarTexto(request.getDireccionDestino(), "La direccion de destino es obligatoria.");
+        String direccionDestino = validarTexto(request.getDireccionDestino(), "La dirección de destino es obligatoria.");
 
         if (guiaRepository.existsByNumeroGuia(numeroGuia)) {
-            throw new IllegalArgumentException("Ya existe una guia con ese numero.");
+            throw new IllegalArgumentException("Ya existe una guía con ese número.");
         }
 
         GuiaDespacho guia = GuiaDespacho.builder()
@@ -73,7 +73,7 @@ public class GuiaDespachoService {
             Path carpetaEfs = Path.of(efsBasePath);
             Files.createDirectories(carpetaEfs);
 
-            String numeroGuia = validarTexto(guia.getNumeroGuia(), "La guia debe tener numero.");
+            String numeroGuia = validarTexto(guia.getNumeroGuia(), "La guía debe tener número.");
             String nombreArchivo = "guia-" + limpiarTextoPlano(numeroGuia) + ".txt";
             Path archivoEfs = carpetaEfs.resolve(nombreArchivo);
 
@@ -87,7 +87,6 @@ public class GuiaDespachoService {
                     .bucket(bucketName)
                     .key(s3Key)
                     .contentType("text/plain; charset=UTF-8")
-                    .contentEncoding("UTF-8")
                     .build();
 
             s3Client.putObject(
@@ -103,7 +102,7 @@ public class GuiaDespachoService {
             return toResponse(guardarGuia(guia));
 
         } catch (IOException e) {
-            throw new RuntimeException("Error al generar la guia en EFS.", e);
+            throw new RuntimeException("Error al generar la guía en EFS.", e);
         }
     }
 
@@ -120,7 +119,7 @@ public class GuiaDespachoService {
         byte[] contenido = archivo.asByteArray();
 
         if (contenido == null || contenido.length == 0) {
-            throw new RecursoNoEncontradoException("El archivo descargado desde S3 esta vacio o no existe.");
+            throw new RecursoNoEncontradoException("El archivo descargado desde S3 está vacío o no existe.");
         }
 
         return new ByteArrayResource(contenido);
@@ -131,10 +130,10 @@ public class GuiaDespachoService {
 
         GuiaDespacho guia = buscarEntidad(id);
 
-        guia.setNumeroGuia(validarTexto(request.getNumeroGuia(), "El numero de guia es obligatorio."));
+        guia.setNumeroGuia(validarTexto(request.getNumeroGuia(), "El número de guía es obligatorio."));
         guia.setTransportista(validarTexto(request.getTransportista(), "El transportista es obligatorio."));
         guia.setDestinatario(validarTexto(request.getDestinatario(), "El destinatario es obligatorio."));
-        guia.setDireccionDestino(validarTexto(request.getDireccionDestino(), "La direccion de destino es obligatoria."));
+        guia.setDireccionDestino(validarTexto(request.getDireccionDestino(), "La dirección de destino es obligatoria."));
         guia.setFechaGeneracion(request.getFechaGeneracion() != null ? request.getFechaGeneracion() : LocalDate.now());
         guia.setEstado(normalizarEstado(request.getEstado(), "ACTUALIZADA"));
 
@@ -182,45 +181,45 @@ public class GuiaDespachoService {
 
     private GuiaDespacho buscarEntidad(Long id) {
         if (id == null) {
-            throw new IllegalArgumentException("El ID de la guia es obligatorio.");
+            throw new IllegalArgumentException("El ID de la guía es obligatorio.");
         }
 
         return guiaRepository.findById(id)
-                .orElseThrow(() -> new RecursoNoEncontradoException("Guia no encontrada con ID: " + id));
+                .orElseThrow(() -> new RecursoNoEncontradoException("Guía no encontrada con ID: " + id));
     }
 
     private GuiaDespacho guardarGuia(GuiaDespacho guia) {
         if (guia == null) {
-            throw new IllegalArgumentException("La guia no puede ser nula.");
+            throw new IllegalArgumentException("La guía no puede ser nula.");
         }
 
         return guiaRepository.save(guia);
     }
 
     private String construirContenidoGuia(GuiaDespacho guia) {
-        String numeroGuia = validarTexto(guia.getNumeroGuia(), "La guia debe tener numero.");
-        String transportista = validarTexto(guia.getTransportista(), "La guia debe tener transportista.");
-        String destinatario = validarTexto(guia.getDestinatario(), "La guia debe tener destinatario.");
-        String direccionDestino = validarTexto(guia.getDireccionDestino(), "La guia debe tener direccion de destino.");
+        String numeroGuia = validarTexto(guia.getNumeroGuia(), "La guía debe tener número.");
+        String transportista = validarTexto(guia.getTransportista(), "La guía debe tener transportista.");
+        String destinatario = validarTexto(guia.getDestinatario(), "La guía debe tener destinatario.");
+        String direccionDestino = validarTexto(guia.getDireccionDestino(), "La guía debe tener dirección de destino.");
         LocalDate fecha = guia.getFechaGeneracion() != null ? guia.getFechaGeneracion() : LocalDate.now();
         String estado = normalizarEstado(guia.getEstado(), "GENERADA");
 
         return """
-                GUIA DE DESPACHO
+                GUÍA DE DESPACHO
                 -----------------
-                Numero: %s
+                Número: %s
                 Transportista: %s
                 Destinatario: %s
-                Direccion destino: %s
-                Fecha generacion: %s
+                Dirección destino: %s
+                Fecha generación: %s
                 Estado: %s
                 """.formatted(
-                limpiarTextoPlano(numeroGuia),
-                limpiarTextoPlano(transportista),
-                limpiarTextoPlano(destinatario),
-                limpiarTextoPlano(direccionDestino),
+                numeroGuia,
+                transportista,
+                destinatario,
+                direccionDestino,
                 fecha,
-                limpiarTextoPlano(estado)
+                estado
         );
     }
 
@@ -229,7 +228,7 @@ public class GuiaDespachoService {
 
         String transportista = validarTexto(
                 guia.getTransportista(),
-                "La guia debe tener transportista para construir la ruta S3."
+                "La guía debe tener transportista para construir la ruta S3."
         );
 
         return fecha + "/" + limpiarNombreCarpeta(transportista) + "/" + nombreArchivo;
@@ -257,7 +256,7 @@ public class GuiaDespachoService {
 
     private void validarS3Key(GuiaDespacho guia) {
         if (guia.getS3Key() == null || guia.getS3Key().isBlank()) {
-            throw new RecursoNoEncontradoException("La guia aun no tiene archivo asociado en S3.");
+            throw new RecursoNoEncontradoException("La guía aún no tiene archivo asociado en S3.");
         }
     }
 
@@ -285,7 +284,7 @@ public class GuiaDespachoService {
 
     private GuiaDespachoResponse toResponse(GuiaDespacho guia) {
         if (guia == null) {
-            throw new IllegalArgumentException("La guia no puede ser nula.");
+            throw new IllegalArgumentException("La guía no puede ser nula.");
         }
 
         return GuiaDespachoResponse.builder()
