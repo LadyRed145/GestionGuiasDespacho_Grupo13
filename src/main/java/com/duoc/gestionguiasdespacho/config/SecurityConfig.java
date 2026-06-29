@@ -40,10 +40,18 @@ public class SecurityConfig {
                         ).permitAll()
 
                         .requestMatchers("/api/guias/*/descargar")
-                        .hasAnyRole(SecurityRoles.GUIA_DOWNLOAD, SecurityRoles.GUIA_DESPACHO)
+                        .hasAnyAuthority(
+                                SecurityRoles.ROLE_GUIA_DOWNLOAD,
+                                SecurityRoles.ROLE_GUIA_DESPACHO,
+                                "SCOPE_" + SecurityRoles.GUIA_DOWNLOAD,
+                                "SCOPE_" + SecurityRoles.GUIA_DESPACHO
+                        )
 
                         .requestMatchers("/api/guias/**")
-                        .hasRole(SecurityRoles.GUIA_DESPACHO)
+                        .hasAnyAuthority(
+                                SecurityRoles.ROLE_GUIA_DESPACHO,
+                                "SCOPE_" + SecurityRoles.GUIA_DESPACHO
+                        )
 
                         .anyRequest().authenticated()
                 )
@@ -96,9 +104,10 @@ public class SecurityConfig {
         Object claim = jwt.getClaim(claimName);
 
         if (claim instanceof String value && !value.isBlank()) {
-            List.of(value.split(" ")).forEach(scope ->
-                    authorities.add(new SimpleGrantedAuthority("SCOPE_" + scope))
-            );
+            List.of(value.split(" ")).stream()
+                    .filter(scope -> !scope.isBlank())
+                    .map(scope -> "SCOPE_" + scope.trim().toUpperCase())
+                    .forEach(scope -> authorities.add(new SimpleGrantedAuthority(scope)));
         }
     }
 
