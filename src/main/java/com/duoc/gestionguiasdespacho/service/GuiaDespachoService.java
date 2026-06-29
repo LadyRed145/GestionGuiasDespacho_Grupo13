@@ -70,16 +70,16 @@ public class GuiaDespachoService {
         GuiaDespacho guia = buscarEntidad(id);
 
         try {
-            String numeroGuia = validarTexto(guia.getNumeroGuia(), "La guía debe tener número.");
-            String nombreArchivo = "guia-" + limpiarNombreArchivo(numeroGuia) + ".txt";
-            String contenido = construirContenidoGuia(guia);
-            byte[] contenidoUtf8 = contenido.getBytes(StandardCharsets.UTF_8);
-
-            Path carpetaEfs = Path.of(efsBasePath).normalize();
+            Path carpetaEfs = Path.of(efsBasePath);
             Files.createDirectories(carpetaEfs);
 
-            Path archivoEfs = carpetaEfs.resolve(nombreArchivo).normalize();
-            Files.write(archivoEfs, contenidoUtf8);
+            String numeroGuia = validarTexto(guia.getNumeroGuia(), "La guía debe tener número.");
+            String nombreArchivo = "guia-" + limpiarTextoPlano(numeroGuia) + ".txt";
+            Path archivoEfs = carpetaEfs.resolve(nombreArchivo);
+
+            String contenido = construirContenidoGuia(guia);
+
+            Files.writeString(archivoEfs, contenido, StandardCharsets.UTF_8);
 
             String s3Key = construirS3Key(guia, nombreArchivo);
 
@@ -89,7 +89,10 @@ public class GuiaDespachoService {
                     .contentType("text/plain; charset=UTF-8")
                     .build();
 
-            s3Client.putObject(putRequest, RequestBody.fromBytes(contenidoUtf8));
+            s3Client.putObject(
+                    putRequest,
+                    RequestBody.fromString(contenido, StandardCharsets.UTF_8)
+            );
 
             guia.setNombreArchivo(nombreArchivo);
             guia.setRutaEfs(archivoEfs.toString());
@@ -147,10 +150,12 @@ public class GuiaDespachoService {
         GuiaDespacho guia = buscarEntidad(id);
 
         if (guia.getS3Key() != null && !guia.getS3Key().isBlank()) {
-            s3Client.deleteObject(DeleteObjectRequest.builder()
+            DeleteObjectRequest request = DeleteObjectRequest.builder()
                     .bucket(bucketName)
                     .key(guia.getS3Key())
-                    .build());
+                    .build();
+
+            s3Client.deleteObject(request);
         }
 
         guiaRepository.delete(guia);
@@ -200,26 +205,27 @@ public class GuiaDespachoService {
         String estado = normalizarEstado(guia.getEstado(), "GENERADA");
 
         return """
-                GUÍA DE DESPACHO
+                GUIA DE DESPACHO
                 -----------------
-                Número: %s
+                Numero: %s
                 Transportista: %s
                 Destinatario: %s
-                Dirección destino: %s
-                Fecha generación: %s
+                Direccion destino: %s
+                Fecha generacion: %s
                 Estado: %s
                 """.formatted(
-                numeroGuia,
-                transportista,
-                destinatario,
-                direccionDestino,
+                limpiarTextoPlano(numeroGuia),
+                limpiarTextoPlano(transportista),
+                limpiarTextoPlano(destinatario),
+                limpiarTextoPlano(direccionDestino),
                 fecha,
-                estado
+                limpiarTextoPlano(estado)
         );
     }
 
     private String construirS3Key(GuiaDespacho guia, String nombreArchivo) {
         LocalDate fecha = guia.getFechaGeneracion() != null ? guia.getFechaGeneracion() : LocalDate.now();
+
         String transportista = validarTexto(
                 guia.getTransportista(),
                 "La guía debe tener transportista para construir la ruta S3."
@@ -229,23 +235,22 @@ public class GuiaDespachoService {
     }
 
     private String limpiarNombreCarpeta(String texto) {
-        String normalizado = Normalizer.normalize(validarTexto(texto, "El nombre de carpeta no puede estar vacío."), Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "");
-
-        return normalizado
-                .replaceAll("[^a-zA-Z0-9._-]", "_")
+        return limpiarTextoPlano(texto)
+                .replaceAll("[^a-zA-Z0-9_-]", "_")
                 .replaceAll("_+", "_")
                 .replaceAll("^_|_$", "");
     }
 
-    private String limpiarNombreArchivo(String texto) {
-        String normalizado = Normalizer.normalize(validarTexto(texto, "El nombre de archivo no puede estar vacío."), Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "");
+    private String limpiarTextoPlano(String texto) {
+        if (texto == null) {
+            return "";
+        }
 
-        return normalizado
-                .replaceAll("[^a-zA-Z0-9._-]", "_")
-                .replaceAll("_+", "_")
-                .replaceAll("^_|_$", "");
+        return Normalizer.normalize(texto, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .replace("ñ", "n")
+                .replace("Ñ", "N")
+                .trim();
     }
 
     private void validarS3Key(GuiaDespacho guia) {
