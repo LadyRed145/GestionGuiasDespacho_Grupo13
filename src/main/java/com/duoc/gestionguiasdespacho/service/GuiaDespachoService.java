@@ -69,24 +69,27 @@ public class GuiaDespachoService {
     public GuiaDespachoResponse generarYSubirAS3(Long id) {
         GuiaDespacho guia = buscarEntidad(id);
 
+        String s3KeyAnterior = guia.getS3Key();
+        String rutaEfsAnterior = guia.getRutaEfs();
+
         try {
             Path carpetaEfs = Path.of(efsBasePath);
             Files.createDirectories(carpetaEfs);
 
             String numeroGuia = validarTexto(guia.getNumeroGuia(), "La guía debe tener número.");
-            String nombreArchivo = "guia-" + limpiarTextoPlano(numeroGuia) + ".txt";
+            String nombreArchivo = "guia-" + limpiarNombreCarpeta(numeroGuia) + ".txt";
             Path archivoEfs = carpetaEfs.resolve(nombreArchivo);
 
             String contenido = construirContenidoGuia(guia);
-
             Files.writeString(archivoEfs, contenido, StandardCharsets.UTF_8);
 
-            String s3Key = construirS3Key(guia, nombreArchivo);
+            String s3KeyNuevo = construirS3Key(guia, nombreArchivo);
 
             PutObjectRequest putRequest = PutObjectRequest.builder()
                     .bucket(bucketName)
-                    .key(s3Key)
+                    .key(s3KeyNuevo)
                     .contentType("text/plain; charset=UTF-8")
+                    .contentEncoding("UTF-8")
                     .build();
 
             s3Client.putObject(
@@ -94,9 +97,12 @@ public class GuiaDespachoService {
                     RequestBody.fromBytes(contenido.getBytes(StandardCharsets.UTF_8))
             );
 
+            borrarS3SiCambio(s3KeyAnterior, s3KeyNuevo);
+            borrarEfsSiCambio(rutaEfsAnterior, archivoEfs.toString());
+
             guia.setNombreArchivo(nombreArchivo);
             guia.setRutaEfs(archivoEfs.toString());
-            guia.setS3Key(s3Key);
+            guia.setS3Key(s3KeyNuevo);
             guia.setEstado("SUBIDA_S3");
 
             return toResponse(guardarGuia(guia));
@@ -155,14 +161,8 @@ public class GuiaDespachoService {
     public void eliminar(Long id) {
         GuiaDespacho guia = buscarEntidad(id);
 
-        if (guia.getS3Key() != null && !guia.getS3Key().isBlank()) {
-            DeleteObjectRequest request = DeleteObjectRequest.builder()
-                    .bucket(bucketName)
-                    .key(guia.getS3Key())
-                    .build();
-
-            s3Client.deleteObject(request);
-        }
+        borrarS3Seguro(guia.getS3Key());
+        borrarEfsSeguro(guia.getRutaEfs());
 
         guiaRepository.delete(guia);
     }
@@ -258,6 +258,47 @@ public class GuiaDespachoService {
                 .replace("ñ", "n")
                 .replace("Ñ", "N")
                 .trim();
+    }
+
+    private void borrarS3SiCambio(String s3KeyAnterior, String s3KeyNuevo) {
+        if (s3KeyAnterior != null
+                && !s3KeyAnterior.isBlank()
+                && !s3KeyAnterior.equals(s3KeyNuevo)) {
+            borrarS3Seguro(s3KeyAnterior);
+        }
+    }
+
+    private void borrarS3Seguro(String s3Key) {
+        if (s3Key == null || s3Key.isBlank()) {
+            return;
+        }
+
+        DeleteObjectRequest request = DeleteObjectRequest.builder()
+                .bucket(bucketName)
+                .key(s3Key)
+                .build();
+
+        s3Client.deleteObject(request);
+    }
+
+    private void borrarEfsSiCambio(String rutaAnterior, String rutaNueva) {
+        if (rutaAnterior != null
+                && !rutaAnterior.isBlank()
+                && !rutaAnterior.equals(rutaNueva)) {
+            borrarEfsSeguro(rutaAnterior);
+        }
+    }
+
+    private void borrarEfsSeguro(String rutaEfs) {
+        if (rutaEfs == null || rutaEfs.isBlank()) {
+            return;
+        }
+
+        try {
+            Files.deleteIfExists(Path.of(rutaEfs));
+        } catch (IOException e) {
+            throw new RuntimeException("Error al eliminar archivo en EFS: " + rutaEfs, e);
+        }
     }
 
     private void validarS3Key(GuiaDespacho guia) {
