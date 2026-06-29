@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/guias")
@@ -49,8 +48,8 @@ public class GuiaDespachoController {
         ByteArrayResource archivo = guiaService.descargar(id);
 
         return ResponseEntity.ok()
-                .contentType(Objects.requireNonNull(MediaType.TEXT_PLAIN))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=guia-despacho.txt")
+                .contentType(MediaType.parseMediaType("text/plain; charset=UTF-8"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"guia-despacho.txt\"")
                 .body(archivo);
     }
 

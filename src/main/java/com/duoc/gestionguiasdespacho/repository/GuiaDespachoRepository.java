@@ -18,4 +18,6 @@ public interface GuiaDespachoRepository extends JpaRepository<GuiaDespacho, Long
     );
 
     boolean existsByNumeroGuia(String numeroGuia);
+
+    boolean existsByNumeroGuiaAndIdNot(String numeroGuia, Long id);
 }

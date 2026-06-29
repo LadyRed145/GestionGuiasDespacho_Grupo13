@@ -130,7 +130,13 @@ public class GuiaDespachoService {
 
         GuiaDespacho guia = buscarEntidad(id);
 
-        guia.setNumeroGuia(validarTexto(request.getNumeroGuia(), "El número de guía es obligatorio."));
+        String numeroGuia = validarTexto(request.getNumeroGuia(), "El número de guía es obligatorio.");
+
+        if (guiaRepository.existsByNumeroGuiaAndIdNot(numeroGuia, id)) {
+            throw new IllegalArgumentException("Ya existe otra guía con ese número.");
+        }
+
+        guia.setNumeroGuia(numeroGuia);
         guia.setTransportista(validarTexto(request.getTransportista(), "El transportista es obligatorio."));
         guia.setDestinatario(validarTexto(request.getDestinatario(), "El destinatario es obligatorio."));
         guia.setDireccionDestino(validarTexto(request.getDireccionDestino(), "La dirección de destino es obligatoria."));
@@ -165,9 +171,9 @@ public class GuiaDespachoService {
         List<GuiaDespacho> guias;
 
         if (transportista != null && !transportista.isBlank() && fecha != null) {
-            guias = guiaRepository.findByTransportistaIgnoreCaseAndFechaGeneracion(transportista, fecha);
+            guias = guiaRepository.findByTransportistaIgnoreCaseAndFechaGeneracion(transportista.trim(), fecha);
         } else if (transportista != null && !transportista.isBlank()) {
-            guias = guiaRepository.findByTransportistaIgnoreCase(transportista);
+            guias = guiaRepository.findByTransportistaIgnoreCase(transportista.trim());
         } else if (fecha != null) {
             guias = guiaRepository.findByFechaGeneracion(fecha);
         } else {
