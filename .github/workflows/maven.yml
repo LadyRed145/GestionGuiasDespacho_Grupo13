@@ -16,6 +16,9 @@ jobs:
       AWS_REGION: ${{ secrets.AWS_REGION }}
       AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
       EFS_BASE_PATH: ${{ secrets.EFS_BASE_PATH }}
+      AZURE_ISSUER_URI: ${{ secrets.AZURE_ISSUER_URI }}
+      AZURE_JWK_SET_URI: ${{ secrets.AZURE_JWK_SET_URI }}
+      AZURE_AUDIENCE: ${{ secrets.AZURE_AUDIENCE }}
 
     steps:
       - name: Checkout repository
@@ -54,8 +57,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/gestionguiasdespacho
-            docker compose pull
             docker compose down
+            docker compose pull
             docker compose up -d
             docker image prune -f
-            
