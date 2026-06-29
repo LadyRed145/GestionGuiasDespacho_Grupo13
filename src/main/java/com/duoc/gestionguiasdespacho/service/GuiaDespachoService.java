@@ -18,6 +18,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -77,17 +78,26 @@ public class GuiaDespachoService {
             String nombreArchivo = "guia-" + numeroGuia + ".txt";
             Path archivoEfs = carpetaEfs.resolve(nombreArchivo);
 
-            Files.writeString(archivoEfs, construirContenidoGuia(guia));
+            String contenido = construirContenidoGuia(guia);
+
+            Files.writeString(
+                    archivoEfs,
+                    contenido,
+                    StandardCharsets.UTF_8
+            );
 
             String s3Key = construirS3Key(guia, nombreArchivo);
 
             PutObjectRequest putRequest = PutObjectRequest.builder()
                     .bucket(bucketName)
                     .key(s3Key)
-                    .contentType("text/plain")
+                    .contentType("text/plain; charset=UTF-8")
                     .build();
 
-            s3Client.putObject(putRequest, RequestBody.fromFile(archivoEfs));
+            s3Client.putObject(
+                    putRequest,
+                    RequestBody.fromString(contenido, StandardCharsets.UTF_8)
+            );
 
             guia.setNombreArchivo(nombreArchivo);
             guia.setRutaEfs(archivoEfs.toString());
