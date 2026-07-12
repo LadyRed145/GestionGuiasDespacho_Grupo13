@@ -16,7 +16,6 @@ import org.springframework.security.web.SecurityFilterChain;
 
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 @Configuration
@@ -24,40 +23,70 @@ import java.util.Set;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http
+    ) throws Exception {
 
         http
-                .csrf(csrf -> csrf.disable())
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                .csrf(csrf ->
+                        csrf.disable()
                 )
+
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(
+                                SessionCreationPolicy.STATELESS
+                        )
+                )
+
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**",
-                                "/actuator/**"
-                        ).permitAll()
+                                "/actuator/health",
+                                "/actuator/info"
+                        )
+                        .permitAll()
 
-                        .requestMatchers("/api/guias/*/descargar")
+                        .requestMatchers(
+                                "/api/guias/*/descargar"
+                        )
                         .hasAnyAuthority(
                                 SecurityRoles.ROLE_GUIA_DOWNLOAD,
                                 SecurityRoles.ROLE_GUIA_DESPACHO,
-                                "SCOPE_" + SecurityRoles.GUIA_DOWNLOAD,
-                                "SCOPE_" + SecurityRoles.GUIA_DESPACHO
+                                "SCOPE_"
+                                        + SecurityRoles.GUIA_DOWNLOAD,
+                                "SCOPE_"
+                                        + SecurityRoles.GUIA_DESPACHO
                         )
 
-                        .requestMatchers("/api/guias/**")
+                        .requestMatchers(
+                                "/api/guias/cola/**"
+                        )
                         .hasAnyAuthority(
                                 SecurityRoles.ROLE_GUIA_DESPACHO,
-                                "SCOPE_" + SecurityRoles.GUIA_DESPACHO
+                                "SCOPE_"
+                                        + SecurityRoles.GUIA_DESPACHO
                         )
 
-                        .anyRequest().authenticated()
+                        .requestMatchers(
+                                "/api/guias/**"
+                        )
+                        .hasAnyAuthority(
+                                SecurityRoles.ROLE_GUIA_DESPACHO,
+                                "SCOPE_"
+                                        + SecurityRoles.GUIA_DESPACHO
+                        )
+
+                        .anyRequest()
+                        .authenticated()
                 )
+
                 .oauth2ResourceServer(oauth2 ->
                         oauth2.jwt(jwt ->
-                                jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())
+                                jwt.jwtAuthenticationConverter(
+                                        jwtAuthenticationConverter()
+                                )
                         )
                 );
 
@@ -65,59 +94,224 @@ public class SecurityConfig {
     }
 
     @Bean
-    Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter() {
-        return jwt -> new JwtAuthenticationToken(jwt, extractAuthorities(jwt));
+    Converter<Jwt, AbstractAuthenticationToken>
+    jwtAuthenticationConverter() {
+        return jwt -> {
+            Collection<GrantedAuthority> authorities =
+                    extractAuthorities(jwt);
+
+            return new JwtAuthenticationToken(
+                    jwt,
+                    authorities
+            );
+        };
     }
 
-    private Collection<GrantedAuthority> extractAuthorities(Jwt jwt) {
-        Set<GrantedAuthority> authorities = new HashSet<>();
+    private Collection<GrantedAuthority>
+    extractAuthorities(
+            Jwt jwt
+    ) {
+        Set<GrantedAuthority> authorities =
+                new HashSet<>();
 
-        addRolesFromClaim(jwt, authorities, "roles");
-        addRolesFromClaim(jwt, authorities, "groups");
-        addRolesFromClaim(jwt, authorities, "extension_roles");
-        addRolesFromClaim(jwt, authorities, "extension_Roles");
+        addRolesFromClaim(
+                jwt,
+                authorities,
+                "roles"
+        );
 
-        addScopes(jwt, authorities, "scp");
-        addScopes(jwt, authorities, "scope");
+        addRolesFromClaim(
+                jwt,
+                authorities,
+                "groups"
+        );
 
-        return authorities;
+        addRolesFromClaim(
+                jwt,
+                authorities,
+                "extension_roles"
+        );
+
+        addRolesFromClaim(
+                jwt,
+                authorities,
+                "extension_Roles"
+        );
+
+        addScopes(
+                jwt,
+                authorities,
+                "scp"
+        );
+
+        addScopes(
+                jwt,
+                authorities,
+                "scope"
+        );
+
+        return Set.copyOf(authorities);
     }
 
-    private void addRolesFromClaim(Jwt jwt, Set<GrantedAuthority> authorities, String claimName) {
-        Object claim = jwt.getClaim(claimName);
+    private void addRolesFromClaim(
+            Jwt jwt,
+            Set<GrantedAuthority> authorities,
+            String claimName
+    ) {
+        Object claim = jwt.getClaim(
+                claimName
+        );
 
         if (claim instanceof Collection<?> values) {
-            values.stream()
-                    .map(String::valueOf)
-                    .map(this::normalizeRole)
-                    .forEach(role -> authorities.add(new SimpleGrantedAuthority(role)));
+            for (Object value : values) {
+                agregarRol(
+                        authorities,
+                        value
+                );
+            }
+
+            return;
         }
 
-        if (claim instanceof String value && !value.isBlank()) {
-            List.of(value.split("[, ]+")).stream()
-                    .map(this::normalizeRole)
-                    .forEach(role -> authorities.add(new SimpleGrantedAuthority(role)));
-        }
-    }
-
-    private void addScopes(Jwt jwt, Set<GrantedAuthority> authorities, String claimName) {
-        Object claim = jwt.getClaim(claimName);
-
-        if (claim instanceof String value && !value.isBlank()) {
-            List.of(value.split(" ")).stream()
-                    .filter(scope -> !scope.isBlank())
-                    .map(scope -> "SCOPE_" + scope.trim().toUpperCase())
-                    .forEach(scope -> authorities.add(new SimpleGrantedAuthority(scope)));
+        if (claim instanceof String value) {
+            agregarRolesDesdeTexto(
+                    authorities,
+                    value
+            );
         }
     }
 
-    private String normalizeRole(String role) {
-        String cleanRole = role.trim().toUpperCase();
-
-        if (cleanRole.startsWith("ROLE_")) {
-            return cleanRole;
+    private void agregarRolesDesdeTexto(
+            Set<GrantedAuthority> authorities,
+            String valor
+    ) {
+        if (valor.isBlank()) {
+            return;
         }
 
-        return "ROLE_" + cleanRole;
+        String[] roles =
+                valor.split("[,\\s]+");
+
+        for (String role : roles) {
+            agregarRol(
+                    authorities,
+                    role
+            );
+        }
+    }
+
+    private void agregarRol(
+            Set<GrantedAuthority> authorities,
+            Object valor
+    ) {
+        if (valor == null) {
+            return;
+        }
+
+        String role =
+                String.valueOf(valor).trim();
+
+        if (role.isBlank()) {
+            return;
+        }
+
+        String roleNormalizado =
+                normalizarRol(role);
+
+        authorities.add(
+                new SimpleGrantedAuthority(
+                        roleNormalizado
+                )
+        );
+    }
+
+    private void addScopes(
+            Jwt jwt,
+            Set<GrantedAuthority> authorities,
+            String claimName
+    ) {
+        Object claim = jwt.getClaim(
+                claimName
+        );
+
+        if (claim instanceof String value) {
+            agregarScopesDesdeTexto(
+                    authorities,
+                    value
+            );
+
+            return;
+        }
+
+        if (claim instanceof Collection<?> values) {
+            for (Object value : values) {
+                agregarScope(
+                        authorities,
+                        value
+                );
+            }
+        }
+    }
+
+    private void agregarScopesDesdeTexto(
+            Set<GrantedAuthority> authorities,
+            String valor
+    ) {
+        if (valor.isBlank()) {
+            return;
+        }
+
+        String[] scopes =
+                valor.split("[,\\s]+");
+
+        for (String scope : scopes) {
+            agregarScope(
+                    authorities,
+                    scope
+            );
+        }
+    }
+
+    private void agregarScope(
+            Set<GrantedAuthority> authorities,
+            Object valor
+    ) {
+        if (valor == null) {
+            return;
+        }
+
+        String scope =
+                String.valueOf(valor)
+                        .trim()
+                        .toUpperCase();
+
+        if (scope.isBlank()) {
+            return;
+        }
+
+        String autoridad =
+                scope.startsWith("SCOPE_")
+                        ? scope
+                        : "SCOPE_" + scope;
+
+        authorities.add(
+                new SimpleGrantedAuthority(
+                        autoridad
+                )
+        );
+    }
+
+    private String normalizarRol(
+            String role
+    ) {
+        String roleLimpio =
+                role.trim()
+                        .toUpperCase();
+
+        if (roleLimpio.startsWith("ROLE_")) {
+            return roleLimpio;
+        }
+
+        return "ROLE_" + roleLimpio;
     }
 }

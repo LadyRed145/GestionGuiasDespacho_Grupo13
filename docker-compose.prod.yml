@@ -1,9 +1,33 @@
 services:
-  gestionguiasdespacho:
-    build:
-      context: .
-      dockerfile: Dockerfile
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: gestion-guias-rabbitmq
+
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USERNAME:?RABBITMQ_USERNAME no definido}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD no definido}"
+
+    ports:
+      - "127.0.0.1:15672:15672"
+
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+    healthcheck:
+      test:
+        - CMD
+        - rabbitmq-diagnostics
+        - -q
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+    restart: unless-stopped
+
+
+  gestionguiasdespacho:
     image: ladyred/gestionguiasdespacho:latest
     container_name: gestion-guias-despacho
 
@@ -13,8 +37,22 @@ services:
     env_file:
       - .env.docker
 
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: "${RABBITMQ_USERNAME:?RABBITMQ_USERNAME no definido}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD no definido}"
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
     volumes:
       - "/home/ubuntu/wallet:/wallet:ro"
       - "./guias:/mnt/efs/guias"
 
-    restart: "no"
+    restart: unless-stopped
+
+
+volumes:
+  rabbitmq_data:
