@@ -20,6 +20,12 @@ import java.util.Optional;
 @Slf4j
 public class GuiaDespachoConsumer {
 
+    private static final String ESTADO_ERROR_PRUEBA =
+            "ERROR_PRUEBA";
+
+    private static final String TRANSPORTISTA_ERROR_PRUEBA =
+            "TRANSPORTISTA_DLQ";
+
     private final RabbitTemplate rabbitTemplate;
     private final GuiaDespachoMqRepository guiaMqRepository;
     private final GuiaDespachoProducer guiaProducer;
@@ -32,10 +38,11 @@ public class GuiaDespachoConsumer {
 
     @Transactional
     public Optional<GuiaDespachoMq> consumirUnMensaje() {
-        Object contenido = rabbitTemplate.receiveAndConvert(
-                guiasQueue,
-                timeoutMs
-        );
+        Object contenido =
+                rabbitTemplate.receiveAndConvert(
+                        guiasQueue,
+                        timeoutMs
+                );
 
         if (contenido == null) {
             log.info(
@@ -54,29 +61,39 @@ public class GuiaDespachoConsumer {
         }
 
         try {
-            String messageId = requerirTexto(
-                    message.getMessageId(),
-                    "El messageId es obligatorio."
-            );
+            String messageId =
+                    requerirTexto(
+                            message.getMessageId(),
+                            "El messageId es obligatorio."
+                    );
 
-            String numeroGuia = requerirTexto(
-                    message.getNumeroGuia(),
-                    "El número de guía es obligatorio."
-            );
+            String numeroGuia =
+                    requerirTexto(
+                            message.getNumeroGuia(),
+                            "El número de guía es obligatorio."
+                    );
 
-            String transportista = requerirTexto(
-                    message.getTransportista(),
-                    "El transportista es obligatorio."
-            );
+            String transportista =
+                    requerirTexto(
+                            message.getTransportista(),
+                            "El transportista es obligatorio."
+                    );
 
-            String destinatario = requerirTexto(
-                    message.getDestinatario(),
-                    "El destinatario es obligatorio."
-            );
+            String destinatario =
+                    requerirTexto(
+                            message.getDestinatario(),
+                            "El destinatario es obligatorio."
+                    );
 
-            String direccionDestino = requerirTexto(
-                    message.getDireccionDestino(),
-                    "La dirección de destino es obligatoria."
+            String direccionDestino =
+                    requerirTexto(
+                            message.getDireccionDestino(),
+                            "La dirección de destino es obligatoria."
+                    );
+
+            validarErrorControlado(
+                    message.getEstado(),
+                    transportista
             );
 
             Optional<GuiaDespachoMq> existente =
@@ -95,7 +112,8 @@ public class GuiaDespachoConsumer {
                 return existente;
             }
 
-            LocalDateTime ahora = LocalDateTime.now();
+            LocalDateTime ahora =
+                    LocalDateTime.now();
 
             LocalDate fechaGeneracion =
                     message.getFechaGeneracion() != null
@@ -160,6 +178,36 @@ public class GuiaDespachoConsumer {
         }
     }
 
+    private void validarErrorControlado(
+            String estado,
+            String transportista
+    ) {
+        String estadoNormalizado =
+                estado == null
+                        ? ""
+                        : estado.trim();
+
+        boolean esEstadoPrueba =
+                ESTADO_ERROR_PRUEBA.equalsIgnoreCase(
+                        estadoNormalizado
+                );
+
+        boolean esTransportistaPrueba =
+                TRANSPORTISTA_ERROR_PRUEBA.equalsIgnoreCase(
+                        transportista
+                );
+
+        if (
+                esEstadoPrueba
+                && esTransportistaPrueba
+        ) {
+            throw new IllegalStateException(
+                    "Error controlado de prueba para validar "
+                            + "el envío a la cola de errores."
+            );
+        }
+    }
+
     private String requerirTexto(
             String valor,
             String mensajeError
@@ -194,7 +242,8 @@ public class GuiaDespachoConsumer {
     private String obtenerMensajeError(
             RuntimeException ex
     ) {
-        String mensaje = ex.getMessage();
+        String mensaje =
+                ex.getMessage();
 
         if (
                 mensaje == null
