@@ -41,10 +41,17 @@ public class GuiaDespachoController {
             @RequestBody
             GuiaDespachoRequest request
     ) {
+        PublicacionGuiaResponse respuesta =
+                guiaMqService.publicar(
+                        request
+                );
+
         return ResponseEntity
-                .status(HttpStatus.ACCEPTED)
+                .status(
+                        HttpStatus.ACCEPTED
+                )
                 .body(
-                        guiaMqService.publicar(request)
+                        respuesta
                 );
     }
 
@@ -55,8 +62,9 @@ public class GuiaDespachoController {
                 guiaConsumer.consumirUnMensaje();
 
         if (resultado.isEmpty()) {
-            return ResponseEntity.ok(
-                    ConsumoMensajeResponse.builder()
+            ConsumoMensajeResponse respuesta =
+                    ConsumoMensajeResponse
+                            .builder()
                             .mensaje(
                                     "La cola principal "
                                             + "no contiene mensajes."
@@ -66,22 +74,31 @@ public class GuiaDespachoController {
                             .fechaConsumo(
                                     LocalDateTime.now()
                             )
-                            .build()
+                            .build();
+
+            return ResponseEntity.ok(
+                    respuesta
             );
         }
 
-        return ResponseEntity.ok(
-                ConsumoMensajeResponse.builder()
+        ConsumoMensajeResponse respuesta =
+                ConsumoMensajeResponse
+                        .builder()
                         .mensaje(
                                 "Mensaje consumido y "
                                         + "guardado en Oracle."
                         )
                         .consumido(true)
-                        .guia(resultado.get())
+                        .guia(
+                                resultado.get()
+                        )
                         .fechaConsumo(
                                 LocalDateTime.now()
                         )
-                        .build()
+                        .build();
+
+        return ResponseEntity.ok(
+                respuesta
         );
     }
 
@@ -100,7 +117,9 @@ public class GuiaDespachoController {
             String estado
     ) {
         return ResponseEntity.ok(
-                guiaMqService.listarPorEstado(estado)
+                guiaMqService.listarPorEstado(
+                        estado
+                )
         );
     }
 
@@ -129,7 +148,9 @@ public class GuiaDespachoController {
             @PathVariable Long id
     ) {
         return ResponseEntity.ok(
-                guiaService.buscarPorId(id)
+                guiaService.buscarPorId(
+                        id
+                )
         );
     }
 
@@ -139,7 +160,9 @@ public class GuiaDespachoController {
             @PathVariable Long id
     ) {
         return ResponseEntity.ok(
-                guiaService.generarYSubirAS3(id)
+                guiaService.generarYSubirAS3(
+                        id
+                )
         );
     }
 
@@ -149,9 +172,12 @@ public class GuiaDespachoController {
             @PathVariable Long id
     ) {
         ByteArrayResource archivo =
-                guiaService.descargar(id);
+                guiaService.descargar(
+                        id
+                );
 
-        return ResponseEntity.ok()
+        return ResponseEntity
+                .ok()
                 .contentType(
                         MediaType.parseMediaType(
                                 "text/plain; charset=UTF-8"
@@ -162,7 +188,9 @@ public class GuiaDespachoController {
                         "inline; filename="
                                 + "\"guia-despacho.txt\""
                 )
-                .body(archivo);
+                .body(
+                        archivo
+                );
     }
 
     @PutMapping("/{id}")
@@ -186,7 +214,9 @@ public class GuiaDespachoController {
     public ResponseEntity<Void> eliminar(
             @PathVariable Long id
     ) {
-        guiaService.eliminar(id);
+        guiaService.eliminar(
+                id
+        );
 
         return ResponseEntity
                 .noContent()

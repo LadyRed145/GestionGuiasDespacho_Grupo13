@@ -1,18 +1,14 @@
 package com.duoc.gestionguiasdespacho.service;
 
 import com.duoc.gestionguiasdespacho.dto.GuiaDespachoMessage;
+import com.duoc.gestionguiasdespacho.exception.ErrorProcesamientoRabbitMqException;
 import com.duoc.gestionguiasdespacho.model.GuiaDespachoMq;
-import com.duoc.gestionguiasdespacho.repository.GuiaDespachoMqRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -27,8 +23,14 @@ public class GuiaDespachoConsumer {
             "TRANSPORTISTA_DLQ";
 
     private final RabbitTemplate rabbitTemplate;
-    private final GuiaDespachoMqRepository guiaMqRepository;
+
+    private final GuiaDespachoMqProcessingService
+            guiaProcessingService;
+
     private final GuiaDespachoProducer guiaProducer;
+
+    private final GuiaDespachoMqErrorService
+            guiaErrorService;
 
     @Value("${app.rabbitmq.guias.queue}")
     private String guiasQueue;
@@ -36,13 +38,10 @@ public class GuiaDespachoConsumer {
     @Value("${app.rabbitmq.consumer.timeout-ms:2000}")
     private long timeoutMs;
 
-    @Transactional
-    public Optional<GuiaDespachoMq> consumirUnMensaje() {
+    public Optional<GuiaDespachoMq>
+    consumirUnMensaje() {
         Object contenido =
-                rabbitTemplate.receiveAndConvert(
-                        guiasQueue,
-                        timeoutMs
-                );
+                recibirMensaje();
 
         if (contenido == null) {
             log.info(
@@ -53,149 +52,88 @@ public class GuiaDespachoConsumer {
             return Optional.empty();
         }
 
-        if (!(contenido instanceof GuiaDespachoMessage message)) {
-            throw new IllegalArgumentException(
+        if (!(contenido
+                instanceof GuiaDespachoMessage message)) {
+            throw new ErrorProcesamientoRabbitMqException(
                     "El mensaje recibido desde RabbitMQ "
                             + "tiene un formato no soportado."
             );
         }
 
         try {
-            String messageId =
-                    requerirTexto(
-                            message.getMessageId(),
-                            "El messageId es obligatorio."
-                    );
-
-            String numeroGuia =
-                    requerirTexto(
-                            message.getNumeroGuia(),
-                            "El número de guía es obligatorio."
-                    );
-
-            String transportista =
-                    requerirTexto(
-                            message.getTransportista(),
-                            "El transportista es obligatorio."
-                    );
-
-            String destinatario =
-                    requerirTexto(
-                            message.getDestinatario(),
-                            "El destinatario es obligatorio."
-                    );
-
-            String direccionDestino =
-                    requerirTexto(
-                            message.getDireccionDestino(),
-                            "La dirección de destino es obligatoria."
-                    );
-
             validarErrorControlado(
-                    message.getEstado(),
-                    transportista
+                    message
             );
 
-            Optional<GuiaDespachoMq> existente =
-                    guiaMqRepository.findByMessageId(
-                            messageId
-                    );
+            GuiaDespachoMq resultado =
+                    guiaProcessingService
+                            .procesarMensaje(
+                                    message
+                            );
 
-            if (existente.isPresent()) {
-                log.info(
-                        "Mensaje duplicado ignorado. "
-                                + "messageId={}, numeroGuia={}",
-                        messageId,
-                        numeroGuia
-                );
-
-                return existente;
-            }
-
-            LocalDateTime ahora =
-                    LocalDateTime.now();
-
-            LocalDate fechaGeneracion =
-                    message.getFechaGeneracion() != null
-                            ? message.getFechaGeneracion()
-                            : LocalDate.now();
-
-            GuiaDespachoMq guiaMq =
-                    GuiaDespachoMq.builder()
-                            .messageId(messageId)
-                            .numeroGuia(numeroGuia)
-                            .transportista(transportista)
-                            .destinatario(destinatario)
-                            .direccionDestino(direccionDestino)
-                            .fechaGeneracion(fechaGeneracion)
-                            .estado(
-                                    normalizarEstado(
-                                            message.getEstado()
-                                    )
-                            )
-                            .estadoProcesamiento("PROCESADO")
-                            .fechaRecepcion(ahora)
-                            .fechaProcesamiento(ahora)
-                            .mensajeError(null)
-                            .build();
-
-            GuiaDespachoMq entidadValida =
-                    Objects.requireNonNull(
-                            guiaMq,
-                            "No fue posible construir "
-                                    + "la entidad GuiaDespachoMq."
-                    );
-
-            GuiaDespachoMq guardada =
-                    guiaMqRepository.save(
-                            entidadValida
-                    );
-
-            log.info(
-                    "Mensaje consumido y guardado en Oracle. "
-                            + "messageId={}, numeroGuia={}",
-                    guardada.getMessageId(),
-                    guardada.getNumeroGuia()
+            return Optional.of(
+                    resultado
             );
-
-            return Optional.of(guardada);
 
         } catch (RuntimeException ex) {
-            log.error(
-                    "Error procesando mensaje RabbitMQ. "
-                            + "messageId={}, numeroGuia={}",
-                    message.getMessageId(),
-                    message.getNumeroGuia(),
+            manejarMensajeFallido(
+                    message,
                     ex
             );
 
-            guiaProducer.enviarError(
-                    message,
-                    obtenerMensajeError(ex)
+            throw new ErrorProcesamientoRabbitMqException(
+                    obtenerMensajeError(ex),
+                    ex
+            );
+        }
+    }
+
+    private Object recibirMensaje() {
+        try {
+            return rabbitTemplate.receiveAndConvert(
+                    guiasQueue,
+                    timeoutMs
             );
 
-            throw ex;
+        } catch (RuntimeException ex) {
+            log.error(
+                    "No fue posible recibir o convertir "
+                            + "el mensaje desde RabbitMQ.",
+                    ex
+            );
+
+            throw new ErrorProcesamientoRabbitMqException(
+                    "No fue posible leer el mensaje "
+                            + "desde la cola principal.",
+                    ex
+            );
         }
     }
 
     private void validarErrorControlado(
-            String estado,
-            String transportista
+            GuiaDespachoMessage message
     ) {
-        String estadoNormalizado =
-                estado == null
-                        ? ""
-                        : estado.trim();
+        String estado =
+                normalizarTexto(
+                        message.getEstado()
+                );
+
+        String transportista =
+                normalizarTexto(
+                        message.getTransportista()
+                );
 
         boolean esEstadoPrueba =
-                ESTADO_ERROR_PRUEBA.equalsIgnoreCase(
-                        estadoNormalizado
-                );
+                ESTADO_ERROR_PRUEBA
+                        .equalsIgnoreCase(
+                                estado
+                        );
 
         boolean esTransportistaPrueba =
-                TRANSPORTISTA_ERROR_PRUEBA.equalsIgnoreCase(
-                        transportista
-                );
+                TRANSPORTISTA_ERROR_PRUEBA
+                        .equalsIgnoreCase(
+                                transportista
+                        );
 
         if (
                 esEstadoPrueba
@@ -203,40 +141,98 @@ public class GuiaDespachoConsumer {
         ) {
             throw new IllegalStateException(
                     "Error controlado de prueba para validar "
-                            + "el envío a la cola de errores."
+                            + "el registro en Oracle y el envío "
+                            + "a la cola de errores."
             );
         }
     }
 
-    private String requerirTexto(
-            String valor,
-            String mensajeError
+    private void manejarMensajeFallido(
+            GuiaDespachoMessage message,
+            RuntimeException ex
     ) {
-        if (
-                valor == null
-                || valor.isBlank()
-        ) {
-            throw new IllegalArgumentException(
-                    mensajeError
+        String detalleError =
+                obtenerMensajeError(
+                        ex
+                );
+
+        log.error(
+                "Error procesando mensaje RabbitMQ. "
+                        + "messageId={}, numeroGuia={}, "
+                        + "detalle={}",
+                message.getMessageId(),
+                message.getNumeroGuia(),
+                detalleError,
+                ex
+        );
+
+        registrarErrorEnOracle(
+                message,
+                detalleError
+        );
+
+        enviarAColaDeErrores(
+                message,
+                detalleError,
+                ex
+        );
+    }
+
+    private void registrarErrorEnOracle(
+            GuiaDespachoMessage message,
+            String detalleError
+    ) {
+        try {
+            guiaErrorService.registrarError(
+                    message,
+                    detalleError
             );
+
+        } catch (RuntimeException registroEx) {
+            log.error(
+                    "No fue posible registrar el error "
+                            + "del mensaje en Oracle. "
+                            + "messageId={}",
+                    message.getMessageId(),
+                    registroEx
+            );
+        }
+    }
+
+    private void enviarAColaDeErrores(
+            GuiaDespachoMessage message,
+            String detalleError,
+            RuntimeException errorOriginal
+    ) {
+        try {
+            guiaProducer.enviarError(
+                    message,
+                    detalleError
+            );
+
+        } catch (RuntimeException envioEx) {
+            log.error(
+                    "No fue posible enviar el mensaje "
+                            + "a la cola de errores. "
+                            + "messageId={}",
+                    message.getMessageId(),
+                    envioEx
+            );
+
+            errorOriginal.addSuppressed(
+                    envioEx
+            );
+        }
+    }
+
+    private String normalizarTexto(
+            String valor
+    ) {
+        if (valor == null) {
+            return "";
         }
 
         return valor.trim();
-    }
-
-    private String normalizarEstado(
-            String estado
-    ) {
-        if (
-                estado == null
-                || estado.isBlank()
-        ) {
-            return "CREADA";
-        }
-
-        return estado
-                .trim()
-                .toUpperCase();
     }
 
     private String obtenerMensajeError(

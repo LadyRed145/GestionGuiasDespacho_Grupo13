@@ -39,6 +39,57 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(
+            ErrorProcesamientoRabbitMqException.class
+    )
+    public ResponseEntity<Map<String, Object>>
+    manejarErrorProcesamientoRabbitMq(
+            ErrorProcesamientoRabbitMqException ex,
+            HttpServletRequest request
+    ) {
+        log.warn(
+                "Mensaje RabbitMQ procesado con error "
+                        + "en la ruta {}. Detalle: {}",
+                request.getRequestURI(),
+                ex.getMessage()
+        );
+
+        Map<String, Object> respuesta =
+                construirCuerpo(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        obtenerMensajeSeguro(
+                                ex.getMessage(),
+                                "El mensaje no pudo ser procesado."
+                        ),
+                        request.getRequestURI()
+                );
+
+        respuesta.put(
+                "procesado",
+                false
+        );
+
+        respuesta.put(
+                "estadoProcesamiento",
+                "ERROR"
+        );
+
+        respuesta.put(
+                "destino",
+                "guias.despacho.error.queue"
+        );
+
+        return ResponseEntity
+                .status(
+                        HttpStatus
+                                .UNPROCESSABLE_ENTITY
+                                .value()
+                )
+                .body(
+                        respuesta
+                );
+    }
+
+    @ExceptionHandler(
             IllegalArgumentException.class
     )
     public ResponseEntity<Map<String, Object>>
@@ -71,7 +122,10 @@ public class GlobalExceptionHandler {
         ) {
             errores.put(
                     error.getField(),
-                    error.getDefaultMessage()
+                    obtenerMensajeSeguro(
+                            error.getDefaultMessage(),
+                            "Valor inválido."
+                    )
             );
         }
 
@@ -89,8 +143,12 @@ public class GlobalExceptionHandler {
         );
 
         return ResponseEntity
-                .badRequest()
-                .body(respuesta);
+                .status(
+                        HttpStatus.BAD_REQUEST.value()
+                )
+                .body(
+                        respuesta
+                );
     }
 
     @ExceptionHandler(
@@ -140,21 +198,29 @@ public class GlobalExceptionHandler {
 
     private ResponseEntity<Map<String, Object>>
     construirRespuesta(
-        HttpStatus status,
-        String mensaje,
-        String ruta
-) {
-    Map<String, Object> cuerpo =
-            construirCuerpo(
-                    status,
-                    mensaje,
-                    ruta
-            );
+            HttpStatus status,
+            String mensaje,
+            String ruta
+    ) {
+        Map<String, Object> cuerpo =
+                construirCuerpo(
+                        status,
+                        obtenerMensajeSeguro(
+                                mensaje,
+                                "No fue posible procesar "
+                                        + "la solicitud."
+                        ),
+                        ruta
+                );
 
-    return ResponseEntity
-            .status(status.value())
-            .body(cuerpo);
-}
+        return ResponseEntity
+                .status(
+                        status.value()
+                )
+                .body(
+                        cuerpo
+                );
+    }
 
     private Map<String, Object> construirCuerpo(
             HttpStatus status,
@@ -190,5 +256,19 @@ public class GlobalExceptionHandler {
         );
 
         return respuesta;
+    }
+
+    private String obtenerMensajeSeguro(
+            String mensaje,
+            String mensajePorDefecto
+    ) {
+        if (
+                mensaje == null
+                || mensaje.isBlank()
+        ) {
+            return mensajePorDefecto;
+        }
+
+        return mensaje.trim();
     }
 }
