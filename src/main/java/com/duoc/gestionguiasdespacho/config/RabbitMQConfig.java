@@ -7,6 +7,7 @@ import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
+import org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +18,9 @@ import java.util.Objects;
 
 @Configuration
 public class RabbitMQConfig {
+
+    private static final String PAQUETE_DTO_CONFIABLE =
+            "com.duoc.gestionguiasdespacho.dto";
 
     @Value("${app.rabbitmq.guias.exchange}")
     private String guiasExchange;
@@ -108,6 +112,20 @@ public class RabbitMQConfig {
 
     @Bean
     public MessageConverter jsonMessageConverter() {
-        return new Jackson2JsonMessageConverter();
+        DefaultJackson2JavaTypeMapper typeMapper =
+                new DefaultJackson2JavaTypeMapper();
+
+        typeMapper.setTrustedPackages(
+                PAQUETE_DTO_CONFIABLE
+        );
+
+        Jackson2JsonMessageConverter converter =
+                new Jackson2JsonMessageConverter();
+
+        converter.setJavaTypeMapper(
+                typeMapper
+        );
+
+        return converter;
     }
 }
