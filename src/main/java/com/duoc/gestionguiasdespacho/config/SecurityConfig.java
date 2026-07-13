@@ -48,18 +48,26 @@ public class SecurityConfig {
                         )
                         .permitAll()
 
+                        /*
+                         * La descarga queda reservada exclusivamente
+                         * para el rol o scope GUIA_DOWNLOAD.
+                         *
+                         * Esta regla debe permanecer antes de
+                         * "/api/guias/**" porque es más específica.
+                         */
                         .requestMatchers(
                                 "/api/guias/*/descargar"
                         )
                         .hasAnyAuthority(
                                 SecurityRoles.ROLE_GUIA_DOWNLOAD,
-                                SecurityRoles.ROLE_GUIA_DESPACHO,
                                 "SCOPE_"
-                                        + SecurityRoles.GUIA_DOWNLOAD,
-                                "SCOPE_"
-                                        + SecurityRoles.GUIA_DESPACHO
+                                        + SecurityRoles.GUIA_DOWNLOAD
                         )
 
+                        /*
+                         * Los endpoints de RabbitMQ requieren
+                         * el permiso general GUIA_DESPACHO.
+                         */
                         .requestMatchers(
                                 "/api/guias/cola/**"
                         )
@@ -69,6 +77,10 @@ public class SecurityConfig {
                                         + SecurityRoles.GUIA_DESPACHO
                         )
 
+                        /*
+                         * El resto de las operaciones sobre guías
+                         * requieren el permiso general GUIA_DESPACHO.
+                         */
                         .requestMatchers(
                                 "/api/guias/**"
                         )
@@ -96,6 +108,7 @@ public class SecurityConfig {
     @Bean
     Converter<Jwt, AbstractAuthenticationToken>
     jwtAuthenticationConverter() {
+
         return jwt -> {
             Collection<GrantedAuthority> authorities =
                     extractAuthorities(jwt);
@@ -107,8 +120,7 @@ public class SecurityConfig {
         };
     }
 
-    private Collection<GrantedAuthority>
-    extractAuthorities(
+    private Collection<GrantedAuthority> extractAuthorities(
             Jwt jwt
     ) {
         Set<GrantedAuthority> authorities =
@@ -158,9 +170,8 @@ public class SecurityConfig {
             Set<GrantedAuthority> authorities,
             String claimName
     ) {
-        Object claim = jwt.getClaim(
-                claimName
-        );
+        Object claim =
+                jwt.getClaim(claimName);
 
         if (claim instanceof Collection<?> values) {
             for (Object value : values) {
@@ -209,7 +220,8 @@ public class SecurityConfig {
         }
 
         String role =
-                String.valueOf(valor).trim();
+                String.valueOf(valor)
+                        .trim();
 
         if (role.isBlank()) {
             return;
@@ -230,9 +242,8 @@ public class SecurityConfig {
             Set<GrantedAuthority> authorities,
             String claimName
     ) {
-        Object claim = jwt.getClaim(
-                claimName
-        );
+        Object claim =
+                jwt.getClaim(claimName);
 
         if (claim instanceof String value) {
             agregarScopesDesdeTexto(
