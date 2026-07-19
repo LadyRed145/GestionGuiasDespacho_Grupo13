@@ -17,6 +17,8 @@ services:
     environment:
       SERVER_PORT: 8081
 
+      JAVA_TOOL_OPTIONS: "-Doracle.jdbc.javaNetNio=false"
+
       RABBITMQ_HOST: host.docker.internal
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guias_app}

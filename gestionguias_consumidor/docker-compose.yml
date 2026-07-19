@@ -1,33 +1,36 @@
-services:
-
   gestionguias-consumidor:
     build:
-      context: .
+      context: ../gestionguias_consumidor
       dockerfile: Dockerfile
 
     image: ladyred/gestionguias-consumidor:latest
     container_name: gestion-guias-consumidor
 
-    ports:
-      - "8082:8082"
-
     env_file:
-      - .env
+      - ../gestionguias_consumidor/.env
 
     environment:
       SERVER_PORT: 8082
 
-      RABBITMQ_HOST: host.docker.internal
+      JAVA_TOOL_OPTIONS: "-Doracle.jdbc.javaNetNio=false"
+
+      RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
-      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guias_app}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guias_app_local}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
-
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
+      
     volumes:
-      - "/home/natalia/Archivos/Desarrollo Cloud Native/Wallets Registradas/Wallet_Semana3:/home/natalia/wallets/wallet3:ro"
-      - "./guias:/mnt/efs/guias"
+      - "/home/natalia/wallets/wallet3:/wallet:ro"
 
-    restart: "no"
+    ports:
+      - "8082:8082"
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    networks:
+      - gestionguias-network
