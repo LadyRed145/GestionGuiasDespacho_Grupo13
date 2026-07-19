@@ -1,11 +1,7 @@
-name: CI/CD Gestión Guías
+name: CI/CD Gestión Guías Despacho
 
 on:
   push:
-    branches:
-      - main
-
-  pull_request:
     branches:
       - main
 
@@ -20,81 +16,49 @@ concurrency:
 
 jobs:
 
-  validar-productor:
-    name: Compilar y probar productor
+  build-and-push:
+    name: Compilar y publicar microservicios
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Descargar repositorio
-        uses: actions/checkout@v6
+    env:
+      DB_URL: ${{ secrets.DB_URL }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 
-      - name: Configurar Java 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: maven
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
 
-      - name: Dar permisos al Maven Wrapper
-        run: chmod +x mvnw
+      EFS_BASE_PATH: ${{ secrets.EFS_BASE_PATH }}
 
-      - name: Compilar y ejecutar pruebas
-        run: ./mvnw clean verify
+      AZURE_ISSUER_URI: ${{ secrets.AZURE_ISSUER_URI }}
+      AZURE_JWK_SET_URI: ${{ secrets.AZURE_JWK_SET_URI }}
+      AZURE_AUDIENCE: ${{ secrets.AZURE_AUDIENCE }}
 
-      - name: Comprobar JAR del productor
-        run: |
-          test -f target/gestionguiasdespacho-0.0.1-SNAPSHOT.jar
-          ls -lh target/*.jar
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${{ secrets.RABBITMQ_USERNAME }}
+      RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+      RABBITMQ_VHOST: /
 
+      RABBITMQ_GUIAS_EXCHANGE: guias.despacho.exchange
+      RABBITMQ_GUIAS_QUEUE: guias.despacho.queue
+      RABBITMQ_GUIAS_ROUTING_KEY: guias.despacho
 
-  validar-consumidor:
-    name: Compilar y probar consumidor
-    runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: gestionguias_consumidor
+      RABBITMQ_ERRORES_EXCHANGE: guias.despacho.error.exchange
+      RABBITMQ_ERRORES_QUEUE: guias.despacho.error.queue
+      RABBITMQ_ERRORES_ROUTING_KEY: guias.despacho.error
 
     steps:
+
+      # ============================================================
+      # PREPARACIÓN
+      # ============================================================
+
       - name: Descargar repositorio
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Configurar Java 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: maven
-          cache-dependency-path: gestionguias_consumidor/pom.xml
-
-      - name: Dar permisos al Maven Wrapper
-        run: chmod +x mvnw
-
-      - name: Compilar y ejecutar pruebas
-        run: ./mvnw clean verify
-
-      - name: Comprobar JAR del consumidor
-        run: |
-          test -f target/gestionguias-consumidor.jar
-          ls -lh target/*.jar
-
-
-  publicar-imagenes:
-    name: Publicar ambas imágenes Docker
-    runs-on: ubuntu-latest
-
-    needs:
-      - validar-productor
-      - validar-consumidor
-
-    if: github.event_name != 'pull_request'
-
-    steps:
-      - name: Descargar repositorio
-        uses: actions/checkout@v6
-
-      - name: Configurar Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
@@ -103,66 +67,205 @@ jobs:
             pom.xml
             gestionguias_consumidor/pom.xml
 
-      - name: Dar permisos a Maven Wrapper del productor
-        run: chmod +x mvnw
+      - name: Dar permisos a Maven Wrapper
+        run: |
+          chmod +x mvnw
+          chmod +x gestionguias_consumidor/mvnw
 
-      - name: Dar permisos a Maven Wrapper del consumidor
-        run: chmod +x gestionguias_consumidor/mvnw
+      # ============================================================
+      # PRODUCTOR
+      # ============================================================
 
-      - name: Generar JAR del productor
-        run: ./mvnw clean package -DskipTests
+      - name: Compilar microservicio productor
+        run: |
+          ./mvnw \
+            --batch-mode \
+            clean package \
+            -DskipTests
 
-      - name: Generar JAR del consumidor
+      - name: Comprobar JAR del productor
+        run: |
+          test -f target/gestionguiasdespacho-0.0.1-SNAPSHOT.jar
+
+          echo "JAR del productor generado:"
+          ls -lh target/*.jar
+
+      # ============================================================
+      # CONSUMIDOR
+      # ============================================================
+
+      - name: Compilar microservicio consumidor
         working-directory: gestionguias_consumidor
-        run: ./mvnw clean package -DskipTests
+        run: |
+          ./mvnw \
+            --batch-mode \
+            clean package \
+            -DskipTests
+
+      - name: Comprobar JAR del consumidor
+        run: |
+          test -f gestionguias_consumidor/target/gestionguias-consumidor.jar
+
+          echo "JAR del consumidor generado:"
+          ls -lh gestionguias_consumidor/target/*.jar
+
+      # ============================================================
+      # DOCKER
+      # ============================================================
 
       - name: Configurar Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Iniciar sesión en Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Metadatos imagen productor
-        id: metadata-productor
-        uses: docker/metadata-action@v6
-        with:
-          images: ladyred/gestionguiasdespacho
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=sha,prefix=sha-
+      # ============================================================
+      # IMAGEN PRODUCTOR
+      # ============================================================
 
-      - name: Construir y publicar productor
-        uses: docker/build-push-action@v7
+      - name: Construir y publicar imagen del productor
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.metadata-productor.outputs.tags }}
-          labels: ${{ steps.metadata-productor.outputs.labels }}
-          cache-from: type=gha,scope=productor
-          cache-to: type=gha,mode=max,scope=productor
 
-      - name: Metadatos imagen consumidor
-        id: metadata-consumidor
-        uses: docker/metadata-action@v6
-        with:
-          images: ladyred/gestionguias-consumidor
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=sha,prefix=sha-
+            ladyred/gestionguiasdespacho:latest
+            ladyred/gestionguiasdespacho:sha-${{ github.sha }}
 
-      - name: Construir y publicar consumidor
-        uses: docker/build-push-action@v7
+          cache-from: type=gha,scope=gestionguias-productor
+          cache-to: type=gha,mode=max,scope=gestionguias-productor
+
+      # ============================================================
+      # IMAGEN CONSUMIDOR
+      # ============================================================
+
+      - name: Construir y publicar imagen del consumidor
+        uses: docker/build-push-action@v6
         with:
           context: ./gestionguias_consumidor
           file: ./gestionguias_consumidor/Dockerfile
           push: true
-          tags: ${{ steps.metadata-consumidor.outputs.tags }}
-          labels: ${{ steps.metadata-consumidor.outputs.labels }}
-          cache-from: type=gha,scope=consumidor
-          cache-to: type=gha,mode=max,scope=consumidor
+
+          tags: |
+            ladyred/gestionguias-consumidor:latest
+            ladyred/gestionguias-consumidor:sha-${{ github.sha }}
+
+          cache-from: type=gha,scope=gestionguias-consumidor
+          cache-to: type=gha,mode=max,scope=gestionguias-consumidor
+
+      # ============================================================
+      # RESUMEN
+      # ============================================================
+
+      - name: Mostrar resumen de publicación
+        run: |
+          echo "=============================================="
+          echo " IMÁGENES PUBLICADAS CORRECTAMENTE"
+          echo "=============================================="
+          echo
+          echo "Productor:"
+          echo "ladyred/gestionguiasdespacho:latest"
+          echo "ladyred/gestionguiasdespacho:sha-${GITHUB_SHA}"
+          echo
+          echo "Consumidor:"
+          echo "ladyred/gestionguias-consumidor:latest"
+          echo "ladyred/gestionguias-consumidor:sha-${GITHUB_SHA}"
+
+
+  deploy-ec2:
+    name: Desplegar stack completo en EC2
+    runs-on: ubuntu-latest
+
+    needs:
+      - build-and-push
+
+    /*
+     * El despliegue quedará preparado, pero no se ejecutará hasta
+     * crear en GitHub la variable ENABLE_EC2_DEPLOY con valor true.
+     *
+     * Esto evita romper el EC2 actual antes de preparar allá:
+     * - el consumidor;
+     * - el Compose productivo del stack;
+     * - la Wallet;
+     * - los puertos y volúmenes.
+     */
+    if: ${{ vars.ENABLE_EC2_DEPLOY == 'true' }}
+
+    steps:
+
+      - name: Desplegar monorepo en EC2
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+
+          script_stop: true
+          command_timeout: 15m
+
+          script: |
+            set -Eeuo pipefail
+
+            cd ~/gestionguiasdespacho
+
+            echo
+            echo "=============================================="
+            echo " ACTUALIZANDO MONOREPO"
+            echo "=============================================="
+
+            git pull --ff-only origin main
+            git log -1 --oneline
+
+            echo
+            echo "=============================================="
+            echo " VALIDANDO STACK PRODUCTIVO"
+            echo "=============================================="
+
+            docker compose \
+              --env-file .env.docker \
+              -f gestionguias-stack/docker-compose.prod.yml \
+              config --quiet
+
+            echo
+            echo "=============================================="
+            echo " DESCARGANDO IMÁGENES"
+            echo "=============================================="
+
+            docker compose \
+              --env-file .env.docker \
+              -f gestionguias-stack/docker-compose.prod.yml \
+              pull
+
+            echo
+            echo "=============================================="
+            echo " RECREANDO STACK"
+            echo "=============================================="
+
+            docker compose \
+              --env-file .env.docker \
+              -f gestionguias-stack/docker-compose.prod.yml \
+              down --remove-orphans
+
+            docker compose \
+              --env-file .env.docker \
+              -f gestionguias-stack/docker-compose.prod.yml \
+              up -d \
+              --force-recreate \
+              --remove-orphans
+
+            echo
+            echo "=============================================="
+            echo " ESTADO DEL STACK"
+            echo "=============================================="
+
+            docker compose \
+              --env-file .env.docker \
+              -f gestionguias-stack/docker-compose.prod.yml \
+              ps
+
+            docker image prune -f
