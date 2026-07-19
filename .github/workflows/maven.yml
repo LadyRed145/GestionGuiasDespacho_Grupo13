@@ -1,63 +1,168 @@
-name: CI/CD Gestion Guias Despacho
+name: CI/CD Gestión Guías
 
 on:
   push:
     branches:
       - main
 
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gestion-guias-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-push-deploy:
+
+  validar-productor:
+    name: Compilar y probar productor
     runs-on: ubuntu-latest
 
-    env:
-      DB_URL: ${{ secrets.DB_URL }}
-      DB_USERNAME: ${{ secrets.DB_USERNAME }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-      AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
-      EFS_BASE_PATH: ${{ secrets.EFS_BASE_PATH }}
-      AZURE_ISSUER_URI: ${{ secrets.AZURE_ISSUER_URI }}
-      AZURE_JWK_SET_URI: ${{ secrets.AZURE_JWK_SET_URI }}
-      AZURE_AUDIENCE: ${{ secrets.AZURE_AUDIENCE }}
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - name: Configurar Java 17
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
+          cache: maven
 
-      - name: Grant Maven Wrapper permission
+      - name: Dar permisos al Maven Wrapper
         run: chmod +x mvnw
 
-      - name: Build Spring Boot project
+      - name: Compilar y ejecutar pruebas
+        run: ./mvnw clean verify
+
+      - name: Comprobar JAR del productor
+        run: |
+          test -f target/gestionguiasdespacho-0.0.1-SNAPSHOT.jar
+          ls -lh target/*.jar
+
+
+  validar-consumidor:
+    name: Compilar y probar consumidor
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: gestionguias_consumidor
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: gestionguias_consumidor/pom.xml
+
+      - name: Dar permisos al Maven Wrapper
+        run: chmod +x mvnw
+
+      - name: Compilar y ejecutar pruebas
+        run: ./mvnw clean verify
+
+      - name: Comprobar JAR del consumidor
+        run: |
+          test -f target/gestionguias-consumidor.jar
+          ls -lh target/*.jar
+
+
+  publicar-imagenes:
+    name: Publicar ambas imágenes Docker
+    runs-on: ubuntu-latest
+
+    needs:
+      - validar-productor
+      - validar-consumidor
+
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: |
+            pom.xml
+            gestionguias_consumidor/pom.xml
+
+      - name: Dar permisos a Maven Wrapper del productor
+        run: chmod +x mvnw
+
+      - name: Dar permisos a Maven Wrapper del consumidor
+        run: chmod +x gestionguias_consumidor/mvnw
+
+      - name: Generar JAR del productor
         run: ./mvnw clean package -DskipTests
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+      - name: Generar JAR del consumidor
+        working-directory: gestionguias_consumidor
+        run: ./mvnw clean package -DskipTests
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Iniciar sesión en Docker Hub
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+      - name: Metadatos imagen productor
+        id: metadata-productor
+        uses: docker/metadata-action@v6
+        with:
+          images: ladyred/gestionguiasdespacho
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,prefix=sha-
+
+      - name: Construir y publicar productor
+        uses: docker/build-push-action@v7
         with:
           context: .
+          file: ./Dockerfile
           push: true
-          tags: ladyred/gestionguiasdespacho:latest
+          tags: ${{ steps.metadata-productor.outputs.tags }}
+          labels: ${{ steps.metadata-productor.outputs.labels }}
+          cache-from: type=gha,scope=productor
+          cache-to: type=gha,mode=max,scope=productor
 
-      - name: Deploy on AWS EC2
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Metadatos imagen consumidor
+        id: metadata-consumidor
+        uses: docker/metadata-action@v6
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd ~/gestionguiasdespacho
-            docker compose down
-            docker compose pull
-            docker compose up -d
-            docker image prune -f
+          images: ladyred/gestionguias-consumidor
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,prefix=sha-
+
+      - name: Construir y publicar consumidor
+        uses: docker/build-push-action@v7
+        with:
+          context: ./gestionguias_consumidor
+          file: ./gestionguias_consumidor/Dockerfile
+          push: true
+          tags: ${{ steps.metadata-consumidor.outputs.tags }}
+          labels: ${{ steps.metadata-consumidor.outputs.labels }}
+          cache-from: type=gha,scope=consumidor
+          cache-to: type=gha,mode=max,scope=consumidor
