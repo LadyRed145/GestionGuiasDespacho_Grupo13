@@ -19,25 +19,46 @@ jobs:
   build-push:
     name: Compilar y publicar microservicios
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     env:
+      # ============================================================
+      # ORACLE
+      # ============================================================
+
       DB_URL: ${{ secrets.DB_URL }}
       DB_USERNAME: ${{ secrets.DB_USERNAME }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 
+      # ============================================================
+      # AWS
+      # ============================================================
+
       AWS_REGION: ${{ secrets.AWS_REGION }}
       AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
 
+      # ============================================================
+      # EFS
+      # ============================================================
+
       EFS_BASE_PATH: ${{ secrets.EFS_BASE_PATH }}
+
+      # ============================================================
+      # AZURE AD B2C
+      # ============================================================
 
       AZURE_ISSUER_URI: ${{ secrets.AZURE_ISSUER_URI }}
       AZURE_JWK_SET_URI: ${{ secrets.AZURE_JWK_SET_URI }}
       AZURE_AUDIENCE: ${{ secrets.AZURE_AUDIENCE }}
 
+      # ============================================================
+      # RABBITMQ PARA GITHUB ACTIONS
+      # ============================================================
+
       RABBITMQ_HOST: localhost
       RABBITMQ_PORT: 5672
-      RABBITMQ_USERNAME: ${{ secrets.RABBITMQ_USERNAME }}
-      RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+      RABBITMQ_USERNAME: guias_ci
+      RABBITMQ_PASSWORD: guias_ci_local
       RABBITMQ_VHOST: /
 
       RABBITMQ_GUIAS_EXCHANGE: guias.despacho.exchange
@@ -49,12 +70,13 @@ jobs:
       RABBITMQ_ERRORES_ROUTING_KEY: guias.despacho.error
 
     services:
+
       rabbitmq:
         image: rabbitmq:3.13-management-alpine
 
         env:
-          RABBITMQ_DEFAULT_USER: ${{ secrets.RABBITMQ_USERNAME }}
-          RABBITMQ_DEFAULT_PASS: ${{ secrets.RABBITMQ_PASSWORD }}
+          RABBITMQ_DEFAULT_USER: guias_ci
+          RABBITMQ_DEFAULT_PASS: guias_ci_local
           RABBITMQ_DEFAULT_VHOST: /
 
         ports:
@@ -66,8 +88,13 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 12
+          --health-start-period 20s
 
     steps:
+
+      # ============================================================
+      # PREPARACIÓN
+      # ============================================================
 
       - name: Descargar repositorio
         uses: actions/checkout@v4
@@ -87,48 +114,159 @@ jobs:
           chmod +x mvnw
           chmod +x gestionguias_consumidor/mvnw
 
-      - name: Verificar RabbitMQ
+      - name: Validar estructura del monorepo
+        shell: bash
         run: |
-          for intento in {1..30}; do
-            if curl -fsS http://localhost:15672 >/dev/null 2>&1; then
-              echo "RabbitMQ operativo."
-              exit 0
+          set -Eeuo pipefail
+
+          test -f pom.xml
+          test -f Dockerfile
+          test -x mvnw
+
+          test -d gestionguias_consumidor
+          test -f gestionguias_consumidor/pom.xml
+          test -f gestionguias_consumidor/Dockerfile
+          test -x gestionguias_consumidor/mvnw
+
+          test -d gestionguias-stack
+          test -f gestionguias-stack/docker-compose.yml
+          test -f gestionguias-stack/docker-compose.prod.yml
+
+          echo "Estructura del monorepo validada correctamente."
+
+      - name: Validar secretos de construcción
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          validar_variable() {
+            local nombre="$1"
+            local valor="$2"
+
+            if [ -z "$valor" ]; then
+              echo "::error::El secreto ${nombre} no está configurado."
+              exit 1
+            fi
+          }
+
+          validar_variable "DB_URL" "$DB_URL"
+          validar_variable "DB_USERNAME" "$DB_USERNAME"
+          validar_variable "DB_PASSWORD" "$DB_PASSWORD"
+
+          validar_variable "AWS_REGION" "$AWS_REGION"
+          validar_variable "AWS_S3_BUCKET_NAME" "$AWS_S3_BUCKET_NAME"
+          validar_variable "EFS_BASE_PATH" "$EFS_BASE_PATH"
+
+          validar_variable "AZURE_ISSUER_URI" "$AZURE_ISSUER_URI"
+          validar_variable "AZURE_JWK_SET_URI" "$AZURE_JWK_SET_URI"
+          validar_variable "AZURE_AUDIENCE" "$AZURE_AUDIENCE"
+
+          echo "Secretos de construcción configurados."
+
+      # ============================================================
+      # RABBITMQ EN CI
+      # ============================================================
+
+      - name: Verificar RabbitMQ de CI
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          rabbit_ok=0
+
+          for intento in $(seq 1 30); do
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              --user "${RABBITMQ_USERNAME}:${RABBITMQ_PASSWORD}" \
+              http://localhost:15672/api/overview \
+              >/tmp/rabbitmq-overview.json
+            then
+              rabbit_ok=1
+              break
             fi
 
             echo "Esperando RabbitMQ... ${intento}/30"
             sleep 2
           done
 
-          echo "RabbitMQ no respondió."
-          exit 1
+          if [ "$rabbit_ok" -ne 1 ]; then
+            echo "::error::RabbitMQ no respondió dentro del tiempo esperado."
+            exit 1
+          fi
+
+          echo "RabbitMQ de CI operativo."
+
+      # ============================================================
+      # PRODUCTOR
+      # ============================================================
 
       - name: Compilar microservicio productor
-        run: ./mvnw clean package -DskipTests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          ./mvnw \
+            --batch-mode \
+            --no-transfer-progress \
+            clean package \
+            -DskipTests
 
       - name: Verificar JAR del productor
+        shell: bash
         run: |
+          set -Eeuo pipefail
+
+          test -f \
+            target/gestionguiasdespacho-0.0.1-SNAPSHOT.jar
+
           echo "JAR generado por el productor:"
           ls -lh target/*.jar
-          test -f target/gestionguiasdespacho-0.0.1-SNAPSHOT.jar
+
+      # ============================================================
+      # CONSUMIDOR
+      # ============================================================
 
       - name: Compilar microservicio consumidor
         working-directory: gestionguias_consumidor
-        run: ./mvnw clean package -DskipTests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          ./mvnw \
+            --batch-mode \
+            --no-transfer-progress \
+            clean package \
+            -DskipTests
 
       - name: Verificar JAR del consumidor
+        shell: bash
         run: |
+          set -Eeuo pipefail
+
+          test -f \
+            gestionguias_consumidor/target/gestionguias-consumidor.jar
+
           echo "JAR generado por el consumidor:"
           ls -lh gestionguias_consumidor/target/*.jar
-          test -f gestionguias_consumidor/target/gestionguias-consumidor.jar
+
+      # ============================================================
+      # DOCKER HUB
+      # ============================================================
 
       - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Iniciar sesion en Docker Hub
+      - name: Iniciar sesión en Docker Hub
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ============================================================
+      # IMAGEN DEL PRODUCTOR
+      # ============================================================
 
       - name: Construir y publicar productor
         uses: docker/build-push-action@v7
@@ -142,6 +280,10 @@ jobs:
           cache-from: type=gha,scope=productor
           cache-to: type=gha,mode=max,scope=productor
 
+      # ============================================================
+      # IMAGEN DEL CONSUMIDOR
+      # ============================================================
+
       - name: Construir y publicar consumidor
         uses: docker/build-push-action@v7
         with:
@@ -154,14 +296,22 @@ jobs:
           cache-from: type=gha,scope=consumidor
           cache-to: type=gha,mode=max,scope=consumidor
 
-      - name: Resumen de imagenes
+      # ============================================================
+      # RESUMEN DE PUBLICACIÓN
+      # ============================================================
+
+      - name: Mostrar resumen de imágenes
+        shell: bash
         run: |
-          echo "Productor publicado:"
+          echo "======================================================"
+          echo " IMÁGENES PUBLICADAS"
+          echo "======================================================"
+          echo
+          echo "Productor:"
           echo "ladyred/gestionguiasdespacho:latest"
           echo "ladyred/gestionguiasdespacho:sha-${GITHUB_SHA}"
-
           echo
-          echo "Consumidor publicado:"
+          echo "Consumidor:"
           echo "ladyred/gestionguias-consumidor:latest"
           echo "ladyred/gestionguias-consumidor:sha-${GITHUB_SHA}"
 
@@ -169,6 +319,7 @@ jobs:
   deploy-ec2:
     name: Desplegar stack completo en EC2
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     needs:
       - build-push
@@ -182,18 +333,62 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
 
-          script_stop: true
           command_timeout: 20m
 
           script: |
             set -Eeuo pipefail
 
-            cd ~/gestionguiasdespacho
+            PROYECTO="$HOME/gestionguiasdespacho"
+            COMPOSE_ARCHIVO="gestionguias-stack/docker-compose.prod.yml"
+            ENV_ARCHIVO=".env.docker"
+
+            mostrar_diagnostico() {
+              echo
+              echo "======================================================"
+              echo " DIAGNÓSTICO DEL DESPLIEGUE"
+              echo "======================================================"
+
+              cd "$PROYECTO" 2>/dev/null || true
+
+              docker compose \
+                --env-file "$ENV_ARCHIVO" \
+                -f "$COMPOSE_ARCHIVO" \
+                ps -a \
+                2>/dev/null || true
+
+              echo
+              echo "Últimos logs disponibles:"
+
+              docker compose \
+                --env-file "$ENV_ARCHIVO" \
+                -f "$COMPOSE_ARCHIVO" \
+                logs --tail=150 \
+                2>/dev/null || true
+            }
+
+            trap mostrar_diagnostico ERR
 
             echo
             echo "======================================================"
-            echo " 1. ACTUALIZANDO MONOREPO"
+            echo " 1. VALIDANDO DOCKER EN EC2"
             echo "======================================================"
+
+            if ! docker info >/dev/null 2>&1; then
+              echo "Docker no está disponible. Intentando iniciarlo..."
+              sudo systemctl start docker
+              sleep 5
+            fi
+
+            docker info >/dev/null
+
+            echo "Docker operativo."
+
+            echo
+            echo "======================================================"
+            echo " 2. ACTUALIZANDO MONOREPO"
+            echo "======================================================"
+
+            cd "$PROYECTO"
 
             git fetch origin
             git pull --ff-only origin main
@@ -201,33 +396,72 @@ jobs:
 
             echo
             echo "======================================================"
-            echo " 2. VALIDANDO ARCHIVOS PRODUCTIVOS"
+            echo " 3. VALIDANDO ARCHIVOS PRODUCTIVOS"
             echo "======================================================"
 
-            test -f .env.docker
-            test -f gestionguias-stack/docker-compose.prod.yml
-            test -d /home/ubuntu/wallet
+            exigir_archivo() {
+              local archivo="$1"
+
+              if [ ! -f "$archivo" ]; then
+                echo "ERROR: no existe el archivo:"
+                echo "$archivo"
+                exit 1
+              fi
+            }
+
+            exigir_directorio() {
+              local directorio="$1"
+
+              if [ ! -d "$directorio" ]; then
+                echo "ERROR: no existe el directorio:"
+                echo "$directorio"
+                exit 1
+              fi
+            }
+
+            exigir_archivo "$ENV_ARCHIVO"
+            exigir_archivo "$COMPOSE_ARCHIVO"
+            exigir_directorio "/home/ubuntu/wallet"
+            exigir_directorio "$PROYECTO/guias"
+
+            for archivo_wallet in \
+              cwallet.sso \
+              ewallet.p12 \
+              sqlnet.ora \
+              tnsnames.ora
+            do
+              exigir_archivo "/home/ubuntu/wallet/${archivo_wallet}"
+            done
+
+            chmod 600 "$ENV_ARCHIVO"
 
             docker compose \
-              --env-file .env.docker \
-              -f gestionguias-stack/docker-compose.prod.yml \
+              --env-file "$ENV_ARCHIVO" \
+              -f "$COMPOSE_ARCHIVO" \
               config --quiet
 
-            echo "Configuracion productiva valida."
+            echo "Configuración productiva válida."
 
             echo
             echo "======================================================"
-            echo " 3. DETENIENDO DESPLIEGUE ANTERIOR"
+            echo " 4. DETENIENDO DESPLIEGUES ANTERIORES"
             echo "======================================================"
 
             docker compose \
-              --env-file .env.docker \
-              -f gestionguias-stack/docker-compose.prod.yml \
+              --env-file "$ENV_ARCHIVO" \
+              -f "$COMPOSE_ARCHIVO" \
+              down --remove-orphans \
+              2>/dev/null || true
+
+            docker compose \
+              --env-file "$ENV_ARCHIVO" \
+              -f docker-compose.prod.yml \
               down --remove-orphans \
               2>/dev/null || true
 
             docker rm -f \
               gestion-guias-rabbitmq \
+              gestion-guias-rabbitmq-consumidor \
               gestion-guias-despacho \
               gestion-guias-productor \
               gestion-guias-consumidor \
@@ -235,14 +469,18 @@ jobs:
 
             echo
             echo "======================================================"
-            echo " 4. LIBERANDO PUERTOS"
+            echo " 5. LIBERANDO PUERTOS"
             echo "======================================================"
 
             for puerto in 5672 15672 8081 8082; do
-              contenedores="$(docker ps -aq --filter "publish=${puerto}")"
+              contenedores="$(
+                docker ps -aq \
+                  --filter "publish=${puerto}"
+              )"
 
               if [ -n "$contenedores" ]; then
-                docker rm -f $contenedores || true
+                docker rm -f $contenedores \
+                  >/dev/null 2>&1 || true
               fi
             done
 
@@ -258,35 +496,54 @@ jobs:
             )"
 
             if [ -n "$proxies" ]; then
-              sudo kill -9 $proxies || true
+              echo "Eliminando docker-proxy huérfanos:"
+              echo "$proxies"
+
+              sudo kill -9 $proxies \
+                >/dev/null 2>&1 || true
+
               sleep 2
             fi
 
+            conflictos="$(
+              sudo ss -ltnp 2>/dev/null \
+                | grep -E ':(5672|15672|8081|8082)[[:space:]]' \
+                || true
+            )"
+
+            if [ -n "$conflictos" ]; then
+              echo "ERROR: todavía existen puertos ocupados:"
+              echo "$conflictos"
+              exit 1
+            fi
+
+            echo "Puertos del stack disponibles."
+
             echo
             echo "======================================================"
-            echo " 5. DESCARGANDO IMAGENES"
+            echo " 6. DESCARGANDO IMÁGENES"
             echo "======================================================"
 
             docker compose \
-              --env-file .env.docker \
-              -f gestionguias-stack/docker-compose.prod.yml \
+              --env-file "$ENV_ARCHIVO" \
+              -f "$COMPOSE_ARCHIVO" \
               pull
 
             echo
             echo "======================================================"
-            echo " 6. LEVANTANDO STACK"
+            echo " 7. LEVANTANDO STACK PRODUCTIVO"
             echo "======================================================"
 
             docker compose \
-              --env-file .env.docker \
-              -f gestionguias-stack/docker-compose.prod.yml \
+              --env-file "$ENV_ARCHIVO" \
+              -f "$COMPOSE_ARCHIVO" \
               up -d \
               --force-recreate \
               --remove-orphans
 
             echo
             echo "======================================================"
-            echo " 7. ESPERANDO RABBITMQ"
+            echo " 8. ESPERANDO RABBITMQ"
             echo "======================================================"
 
             rabbit_ok=0
@@ -309,11 +566,11 @@ jobs:
             done
 
             if [ "$rabbit_ok" -ne 1 ]; then
-              echo "RabbitMQ no alcanzo estado healthy."
+              echo "ERROR: RabbitMQ no alcanzó estado healthy."
 
               docker compose \
-                --env-file .env.docker \
-                -f gestionguias-stack/docker-compose.prod.yml \
+                --env-file "$ENV_ARCHIVO" \
+                -f "$COMPOSE_ARCHIVO" \
                 logs --tail=150 rabbitmq
 
               exit 1
@@ -323,7 +580,7 @@ jobs:
 
             echo
             echo "======================================================"
-            echo " 8. ESPERANDO PRODUCTOR"
+            echo " 9. ESPERANDO PRODUCTOR"
             echo "======================================================"
 
             productor_ok=0
@@ -338,16 +595,25 @@ jobs:
                 break
               fi
 
+              if curl -fsS \
+                http://localhost:8081/api/health \
+                >/tmp/productor-health.json \
+                2>/dev/null
+              then
+                productor_ok=1
+                break
+              fi
+
               echo "Esperando productor... ${intento}/50"
               sleep 3
             done
 
             if [ "$productor_ok" -ne 1 ]; then
-              echo "El productor no respondio."
+              echo "ERROR: el productor no respondió."
 
               docker compose \
-                --env-file .env.docker \
-                -f gestionguias-stack/docker-compose.prod.yml \
+                --env-file "$ENV_ARCHIVO" \
+                -f "$COMPOSE_ARCHIVO" \
                 logs --tail=200 gestionguias-productor
 
               exit 1
@@ -355,10 +621,11 @@ jobs:
 
             cat /tmp/productor-health.json
             echo
+            echo "Productor operativo."
 
             echo
             echo "======================================================"
-            echo " 9. ESPERANDO CONSUMIDOR"
+            echo " 10. ESPERANDO CONSUMIDOR"
             echo "======================================================"
 
             consumidor_ok=0
@@ -378,11 +645,11 @@ jobs:
             done
 
             if [ "$consumidor_ok" -ne 1 ]; then
-              echo "El consumidor no respondio."
+              echo "ERROR: el consumidor no respondió."
 
               docker compose \
-                --env-file .env.docker \
-                -f gestionguias-stack/docker-compose.prod.yml \
+                --env-file "$ENV_ARCHIVO" \
+                -f "$COMPOSE_ARCHIVO" \
                 logs --tail=200 gestionguias-consumidor
 
               exit 1
@@ -390,15 +657,21 @@ jobs:
 
             cat /tmp/consumidor-health.json
             echo
+            echo "Consumidor operativo."
 
             echo
             echo "======================================================"
-            echo " 10. ESTADO FINAL"
+            echo " 11. ESTADO FINAL"
             echo "======================================================"
 
             docker compose \
-              --env-file .env.docker \
-              -f gestionguias-stack/docker-compose.prod.yml \
+              --env-file "$ENV_ARCHIVO" \
+              -f "$COMPOSE_ARCHIVO" \
               ps
 
             docker image prune -f
+
+            echo
+            echo "======================================================"
+            echo " DESPLIEGUE COMPLETADO CORRECTAMENTE"
+            echo "======================================================"
