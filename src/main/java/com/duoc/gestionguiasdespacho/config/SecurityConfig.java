@@ -39,12 +39,25 @@ public class SecurityConfig {
                 )
 
                 .authorizeHttpRequests(auth -> auth
+
+                        /*
+                         * Rutas públicas de documentación,
+                         * monitoreo e identidad del productor.
+                         *
+                         * /api/health se conserva para no romper
+                         * integraciones y pruebas existentes.
+                         *
+                         * /api/productor/health identifica de forma
+                         * explícita al microservicio productor.
+                         */
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**",
                                 "/actuator/health",
-                                "/actuator/info"
+                                "/actuator/info",
+                                "/api/health",
+                                "/api/productor/health"
                         )
                         .permitAll()
 
@@ -90,6 +103,10 @@ public class SecurityConfig {
                                         + SecurityRoles.GUIA_DESPACHO
                         )
 
+                        /*
+                         * Cualquier ruta no declarada anteriormente
+                         * requiere un JWT válido.
+                         */
                         .anyRequest()
                         .authenticated()
                 )
@@ -126,6 +143,10 @@ public class SecurityConfig {
         Set<GrantedAuthority> authorities =
                 new HashSet<>();
 
+        /*
+         * Azure AD B2C puede entregar los roles en distintos
+         * claims dependiendo de la configuración del tenant.
+         */
         addRolesFromClaim(
                 jwt,
                 authorities,
@@ -150,6 +171,10 @@ public class SecurityConfig {
                 "extension_Roles"
         );
 
+        /*
+         * Se admiten tanto "scp" como "scope" para mantener
+         * compatibilidad con distintos formatos de token.
+         */
         addScopes(
                 jwt,
                 authorities,
