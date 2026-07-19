@@ -1,0 +1,145 @@
+services:
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: gestion-guias-rabbitmq
+
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME no definido}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD no definido}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+    healthcheck:
+      test:
+        - CMD
+        - rabbitmq-diagnostics
+        - -q
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+    restart: unless-stopped
+
+    networks:
+      - gestionguias-network
+
+
+  gestionguias-productor:
+    image: ladyred/gestionguiasdespacho:latest
+    container_name: gestion-guias-productor
+
+    ports:
+      - "8081:8081"
+
+    env_file:
+      - ../.env.docker
+
+    environment:
+      SERVER_PORT: 8081
+
+      DB_URL: ${DB_URL:?DB_URL no definido}
+      DB_USERNAME: ${DB_USERNAME:?DB_USERNAME no definido}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD no definido}
+
+      AWS_REGION: ${AWS_REGION:?AWS_REGION no definido}
+      AWS_S3_BUCKET_NAME: ${AWS_S3_BUCKET_NAME:?AWS_S3_BUCKET_NAME no definido}
+
+      EFS_BASE_PATH: ${EFS_BASE_PATH:-/mnt/efs/guias}
+
+      AZURE_ISSUER_URI: ${AZURE_ISSUER_URI:?AZURE_ISSUER_URI no definido}
+      AZURE_JWK_SET_URI: ${AZURE_JWK_SET_URI:?AZURE_JWK_SET_URI no definido}
+      AZURE_AUDIENCE: ${AZURE_AUDIENCE:?AZURE_AUDIENCE no definido}
+
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME no definido}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD no definido}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+
+      RABBITMQ_GUIAS_EXCHANGE: ${RABBITMQ_GUIAS_EXCHANGE:-guias.despacho.exchange}
+      RABBITMQ_GUIAS_QUEUE: ${RABBITMQ_GUIAS_QUEUE:-guias.despacho.queue}
+      RABBITMQ_GUIAS_ROUTING_KEY: ${RABBITMQ_GUIAS_ROUTING_KEY:-guias.despacho}
+
+      RABBITMQ_ERRORES_EXCHANGE: ${RABBITMQ_ERRORES_EXCHANGE:-guias.despacho.error.exchange}
+      RABBITMQ_ERRORES_QUEUE: ${RABBITMQ_ERRORES_QUEUE:-guias.despacho.error.queue}
+      RABBITMQ_ERRORES_ROUTING_KEY: ${RABBITMQ_ERRORES_ROUTING_KEY:-guias.despacho.error}
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+    volumes:
+      - "/home/ubuntu/wallet:/wallet:ro"
+      - "../guias:/mnt/efs/guias"
+
+    restart: unless-stopped
+
+    networks:
+      - gestionguias-network
+
+
+  gestionguias-consumidor:
+    image: ladyred/gestionguias-consumidor:latest
+    container_name: gestion-guias-consumidor
+
+    ports:
+      - "8082:8082"
+
+    env_file:
+      - ../.env.docker
+
+    environment:
+      SERVER_PORT: 8082
+
+      DB_URL: ${DB_URL:?DB_URL no definido}
+      DB_USERNAME: ${DB_USERNAME:?DB_USERNAME no definido}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD no definido}
+
+      AZURE_ISSUER_URI: ${AZURE_ISSUER_URI:?AZURE_ISSUER_URI no definido}
+      AZURE_JWK_SET_URI: ${AZURE_JWK_SET_URI:?AZURE_JWK_SET_URI no definido}
+      AZURE_AUDIENCE: ${AZURE_AUDIENCE:?AZURE_AUDIENCE no definido}
+
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:?RABBITMQ_USERNAME no definido}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD no definido}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+
+      RABBITMQ_GUIAS_EXCHANGE: ${RABBITMQ_GUIAS_EXCHANGE:-guias.despacho.exchange}
+      RABBITMQ_GUIAS_QUEUE: ${RABBITMQ_GUIAS_QUEUE:-guias.despacho.queue}
+      RABBITMQ_GUIAS_ROUTING_KEY: ${RABBITMQ_GUIAS_ROUTING_KEY:-guias.despacho}
+
+      RABBITMQ_ERRORES_EXCHANGE: ${RABBITMQ_ERRORES_EXCHANGE:-guias.despacho.error.exchange}
+      RABBITMQ_ERRORES_QUEUE: ${RABBITMQ_ERRORES_QUEUE:-guias.despacho.error.queue}
+      RABBITMQ_ERRORES_ROUTING_KEY: ${RABBITMQ_ERRORES_ROUTING_KEY:-guias.despacho.error}
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+    volumes:
+      - "/home/ubuntu/wallet:/wallet:ro"
+
+    restart: unless-stopped
+
+    networks:
+      - gestionguias-network
+
+
+volumes:
+  rabbitmq_data:
+
+
+networks:
+  gestionguias-network:
+    name: gestionguias-network
+    driver: bridge
