@@ -1,32 +1,5 @@
 services:
 
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: gestion-guias-rabbitmq
-
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guias_app}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guias_app_local}
-
-    ports:
-      - "15672:15672"
-
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-
-    healthcheck:
-      test:
-        - CMD
-        - rabbitmq-diagnostics
-        - -q
-        - ping
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-    restart: unless-stopped
-
-
   gestionguiasdespacho:
     build:
       context: .
@@ -42,21 +15,19 @@ services:
       - .env
 
     environment:
-      RABBITMQ_HOST: rabbitmq
+      SERVER_PORT: 8081
+
+      RABBITMQ_HOST: host.docker.internal
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guias_app}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guias_app_local}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
 
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     volumes:
       - "/home/natalia/Archivos/Desarrollo Cloud Native/Wallets Registradas/Wallet_Semana3:/home/natalia/wallets/wallet3:ro"
       - "./guias:/mnt/efs/guias"
 
     restart: "no"
-
-
-volumes:
-  rabbitmq_data:
