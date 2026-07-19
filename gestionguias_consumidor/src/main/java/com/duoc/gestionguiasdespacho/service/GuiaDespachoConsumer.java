@@ -27,10 +27,11 @@ public class GuiaDespachoConsumer {
     private final GuiaDespachoMqProcessingService
             guiaProcessingService;
 
-    private final GuiaDespachoProducer guiaProducer;
-
     private final GuiaDespachoMqErrorService
             guiaErrorService;
+
+    private final GuiaDespachoErrorProducer
+            guiaErrorProducer;
 
     @Value("${app.rabbitmq.guias.queue}")
     private String guiasQueue;
@@ -40,6 +41,7 @@ public class GuiaDespachoConsumer {
 
     public Optional<GuiaDespachoMq>
     consumirUnMensaje() {
+
         Object contenido =
                 recibirMensaje();
 
@@ -54,6 +56,7 @@ public class GuiaDespachoConsumer {
 
         if (!(contenido
                 instanceof GuiaDespachoMessage message)) {
+
             throw new ErrorProcesamientoRabbitMqException(
                     "El mensaje recibido desde RabbitMQ "
                             + "tiene un formato no soportado."
@@ -70,6 +73,13 @@ public class GuiaDespachoConsumer {
                             .procesarMensaje(
                                     message
                             );
+
+            log.info(
+                    "Mensaje procesado correctamente. "
+                            + "messageId={}, numeroGuia={}",
+                    message.getMessageId(),
+                    message.getNumeroGuia()
+            );
 
             return Optional.of(
                     resultado
@@ -188,6 +198,12 @@ public class GuiaDespachoConsumer {
                     detalleError
             );
 
+            log.info(
+                    "Error registrado correctamente "
+                            + "en Oracle. messageId={}",
+                    message.getMessageId()
+            );
+
         } catch (RuntimeException registroEx) {
             log.error(
                     "No fue posible registrar el error "
@@ -205,7 +221,7 @@ public class GuiaDespachoConsumer {
             RuntimeException errorOriginal
     ) {
         try {
-            guiaProducer.enviarError(
+            guiaErrorProducer.enviarError(
                     message,
                     detalleError
             );
@@ -238,6 +254,11 @@ public class GuiaDespachoConsumer {
     private String obtenerMensajeError(
             RuntimeException ex
     ) {
+        if (ex == null) {
+            return "Error no especificado durante "
+                    + "el procesamiento del mensaje.";
+        }
+
         String mensaje =
                 ex.getMessage();
 

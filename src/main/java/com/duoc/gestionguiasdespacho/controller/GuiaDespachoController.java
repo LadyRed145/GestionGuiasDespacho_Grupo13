@@ -1,12 +1,9 @@
 package com.duoc.gestionguiasdespacho.controller;
 
-import com.duoc.gestionguiasdespacho.dto.ConsumoMensajeResponse;
 import com.duoc.gestionguiasdespacho.dto.EstadoColasResponse;
 import com.duoc.gestionguiasdespacho.dto.GuiaDespachoRequest;
 import com.duoc.gestionguiasdespacho.dto.GuiaDespachoResponse;
 import com.duoc.gestionguiasdespacho.dto.PublicacionGuiaResponse;
-import com.duoc.gestionguiasdespacho.model.GuiaDespachoMq;
-import com.duoc.gestionguiasdespacho.service.GuiaDespachoConsumer;
 import com.duoc.gestionguiasdespacho.service.GuiaDespachoMqService;
 import com.duoc.gestionguiasdespacho.service.GuiaDespachoService;
 import com.duoc.gestionguiasdespacho.service.RabbitMqMonitorService;
@@ -18,12 +15,18 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/guias")
@@ -32,7 +35,6 @@ public class GuiaDespachoController {
 
     private final GuiaDespachoService guiaService;
     private final GuiaDespachoMqService guiaMqService;
-    private final GuiaDespachoConsumer guiaConsumer;
     private final RabbitMqMonitorService rabbitMonitorService;
 
     @PostMapping
@@ -42,64 +44,11 @@ public class GuiaDespachoController {
             GuiaDespachoRequest request
     ) {
         PublicacionGuiaResponse respuesta =
-                guiaMqService.publicar(
-                        request
-                );
+                guiaMqService.publicar(request);
 
         return ResponseEntity
-                .status(
-                        HttpStatus.ACCEPTED
-                )
-                .body(
-                        respuesta
-                );
-    }
-
-    @PostMapping("/cola/consumir")
-    public ResponseEntity<ConsumoMensajeResponse>
-    consumirMensaje() {
-        Optional<GuiaDespachoMq> resultado =
-                guiaConsumer.consumirUnMensaje();
-
-        if (resultado.isEmpty()) {
-            ConsumoMensajeResponse respuesta =
-                    ConsumoMensajeResponse
-                            .builder()
-                            .mensaje(
-                                    "La cola principal "
-                                            + "no contiene mensajes."
-                            )
-                            .consumido(false)
-                            .guia(null)
-                            .fechaConsumo(
-                                    LocalDateTime.now()
-                            )
-                            .build();
-
-            return ResponseEntity.ok(
-                    respuesta
-            );
-        }
-
-        ConsumoMensajeResponse respuesta =
-                ConsumoMensajeResponse
-                        .builder()
-                        .mensaje(
-                                "Mensaje consumido y "
-                                        + "guardado en Oracle."
-                        )
-                        .consumido(true)
-                        .guia(
-                                resultado.get()
-                        )
-                        .fechaConsumo(
-                                LocalDateTime.now()
-                        )
-                        .build();
-
-        return ResponseEntity.ok(
-                respuesta
-        );
+                .status(HttpStatus.ACCEPTED)
+                .body(respuesta);
     }
 
     @GetMapping("/cola/estado")
@@ -107,19 +56,6 @@ public class GuiaDespachoController {
     consultarEstadoColas() {
         return ResponseEntity.ok(
                 rabbitMonitorService.obtenerEstado()
-        );
-    }
-
-    @GetMapping("/cola/procesados")
-    public ResponseEntity<List<GuiaDespachoMq>>
-    listarMensajesProcesados(
-            @RequestParam(required = false)
-            String estado
-    ) {
-        return ResponseEntity.ok(
-                guiaMqService.listarPorEstado(
-                        estado
-                )
         );
     }
 
@@ -148,9 +84,7 @@ public class GuiaDespachoController {
             @PathVariable Long id
     ) {
         return ResponseEntity.ok(
-                guiaService.buscarPorId(
-                        id
-                )
+                guiaService.buscarPorId(id)
         );
     }
 
@@ -160,9 +94,7 @@ public class GuiaDespachoController {
             @PathVariable Long id
     ) {
         return ResponseEntity.ok(
-                guiaService.generarYSubirAS3(
-                        id
-                )
+                guiaService.generarYSubirAS3(id)
         );
     }
 
@@ -172,9 +104,7 @@ public class GuiaDespachoController {
             @PathVariable Long id
     ) {
         ByteArrayResource archivo =
-                guiaService.descargar(
-                        id
-                );
+                guiaService.descargar(id);
 
         return ResponseEntity
                 .ok()
@@ -185,12 +115,9 @@ public class GuiaDespachoController {
                 )
                 .header(
                         HttpHeaders.CONTENT_DISPOSITION,
-                        "inline; filename="
-                                + "\"guia-despacho.txt\""
+                        "inline; filename=\"guia-despacho.txt\""
                 )
-                .body(
-                        archivo
-                );
+                .body(archivo);
     }
 
     @PutMapping("/{id}")
@@ -214,9 +141,7 @@ public class GuiaDespachoController {
     public ResponseEntity<Void> eliminar(
             @PathVariable Long id
     ) {
-        guiaService.eliminar(
-                id
-        );
+        guiaService.eliminar(id);
 
         return ResponseEntity
                 .noContent()

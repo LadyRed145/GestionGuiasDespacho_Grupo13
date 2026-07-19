@@ -1,0 +1,62 @@
+{"properties": [
+  {
+    "name": "aws.s3.bucket-name",
+    "type": "java.lang.String",
+    "description": "Nombre del bucket AWS S3 utilizado para almacenar las guías de despacho."
+  },
+  {
+    "name": "aws.region",
+    "type": "java.lang.String",
+    "description": "Región AWS donde se encuentra desplegado el bucket S3."
+  },
+  {
+    "name": "app.efs.base-path",
+    "type": "java.lang.String",
+    "description": "Ruta base EFS utilizada para almacenar temporalmente las guías."
+  },
+  {
+    "name": "spring.security.oauth2.resourceserver.jwt.audiences",
+    "type": "java.util.List<java.lang.String>",
+    "description": "Audiencia esperada en el claim aud del JWT emitido por Azure AD B2C."
+  },
+  {
+    "name": "app.rabbitmq.guias.exchange",
+    "type": "java.lang.String",
+    "description": "Exchange utilizado para publicar eventos de guías de despacho."
+  },
+  {
+    "name": "app.rabbitmq.guias.queue",
+    "type": "java.lang.String",
+    "description": "Cola principal para los eventos de guías de despacho."
+  },
+  {
+    "name": "app.rabbitmq.guias.routing-key",
+    "type": "java.lang.String",
+    "description": "Routing key que conecta el exchange con la cola principal."
+  },
+  {
+    "name": "app.rabbitmq.errores.exchange",
+    "type": "java.lang.String",
+    "description": "Exchange utilizado para los mensajes que presentan errores."
+  },
+  {
+    "name": "app.rabbitmq.errores.queue",
+    "type": "java.lang.String",
+    "description": "Cola destinada a almacenar los mensajes con errores."
+  },
+  {
+    "name": "app.rabbitmq.errores.routing-key",
+    "type": "java.lang.String",
+    "description": "Routing key que conecta el exchange de errores con la cola de errores."
+  },
+  {
+    "name": "app.api-gateway.url",
+    "type": "java.lang.String",
+    "description": "URL pública del stage configurado en AWS API Gateway."
+  },
+  {
+    "name": "app.rabbitmq.consumer.timeout-ms",
+    "type": "java.lang.String",
+    "description": "A description for 'app.rabbitmq.consumer.timeout-ms'"
+  }
+]}

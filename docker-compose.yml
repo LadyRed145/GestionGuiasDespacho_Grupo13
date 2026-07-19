@@ -55,7 +55,7 @@ services:
       - "/home/natalia/Archivos/Desarrollo Cloud Native/Wallets Registradas/Wallet_Semana3:/home/natalia/wallets/wallet3:ro"
       - "./guias:/mnt/efs/guias"
 
-    restart: unless-stopped
+    restart: "no"
 
 
 volumes:

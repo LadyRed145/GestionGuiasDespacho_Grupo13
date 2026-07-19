@@ -51,7 +51,7 @@ services:
       - "/home/ubuntu/wallet:/wallet:ro"
       - "./guias:/mnt/efs/guias"
 
-    restart: unless-stopped
+    restart: "no"
 
 
 volumes:

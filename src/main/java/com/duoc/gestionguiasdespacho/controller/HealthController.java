@@ -13,7 +13,9 @@ public class HealthController {
     public Map<String, Object> health() {
         return Map.of(
                 "status", "UP",
-                "service", "learningplatformcloud",
+                "service", "gestionguias-productor",
+                "description",
+                "Microservicio productor y gestor de guías de despacho",
                 "timestamp", LocalDateTime.now()
         );
     }

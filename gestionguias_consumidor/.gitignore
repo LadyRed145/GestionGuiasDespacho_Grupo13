@@ -3,7 +3,6 @@
 # ==============================================================================
 
 target/
-**/target/
 .mvn/wrapper/maven-wrapper.jar
 
 !**/src/main/**/target/
@@ -23,9 +22,6 @@ target/
 
 .env
 .env.*
-.env.docker
-**/.env
-**/.env.docker
 !.env.example
 
 application-local.properties
